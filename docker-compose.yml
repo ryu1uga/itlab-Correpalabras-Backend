@@ -1,0 +1,28 @@
+services:
+  db:
+    image: postgres
+    environment:
+      POSTGRES_USER: correpalabras
+      POSTGRES_PASSWORD: itlab
+      POSTGRES_DB: correpalabras_db
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    command: ["postgres", "-c", "shared_preload_libraries=uuid-ossp"]
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8002:80"
+    depends_on:
+      - db
+    env_file:
+      - .env
+    environment:
+      ConnectionStrings__DefaultConnection: "Host=db;Database=correpalabras_db;Username=correpalabras;Password=itlab"
+
+volumes:
+  postgres_data:

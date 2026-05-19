@@ -1,0 +1,162 @@
+using System.Text.Json.Serialization;
+using Microsoft.EntityFrameworkCore;
+using CorrePalabras.Data;
+using CorrePalabras.Services;
+using CorrePalabras.Services.Interfaces;
+using CorrePalabras.Middleware;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
+using System.Text;
+
+// 1. Cargar variables de entorno del archivo .env
+DotNetEnv.Env.Load();
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Configuración de Kestrel para Docker
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.ListenAnyIP(80); 
+});
+
+// --- SERVICIOS BASE ---
+builder.Services.AddControllers().AddJsonOptions(x =>
+                x.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles);
+
+builder.Services.AddEndpointsApiExplorer();
+
+// 2. Configuración de Swagger con soporte para JWT (Botón de Autorización)
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "CorrePalabras API", Version = "v1" });
+    
+    // Configurar el esquema de seguridad Bearer
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "JWT Authorization header usando el esquema Bearer. \r\n\r\n Escribe 'Bearer' [espacio] y luego tu token.\r\n\r\nEjemplo: \"Bearer 12345abcdef\"",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.ApiKey,
+        Scheme = "Bearer"
+    });
+
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
+
+// 3. Configuración de la Base de Datos (PostgreSQL)
+var connectionString = Environment.GetEnvironmentVariable("CONNECTION_STRING") 
+    ?? builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new Exception("Falta la connection string en variable de entorno CONNECTION_STRING o en appsettings.json");
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseNpgsql(connectionString));
+
+// 4. Configuración de Autenticación JWT
+var jwtKey = Environment.GetEnvironmentVariable("JWT_KEY") ?? throw new Exception("Falta la variable JWT_KEY en el .env");
+var jwtIssuer = Environment.GetEnvironmentVariable("JWT_ISSUER") ?? throw new Exception("Falta la variable JWT_ISSUER en el .env");
+var jwtAudience = Environment.GetEnvironmentVariable("JWT_AUDIENCE") ?? throw new Exception("Falta la variable JWT_AUDIENCE en el .env");
+
+builder.Services.AddAuthentication(options => {
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = jwtIssuer,
+        ValidAudience = jwtAudience,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+    };
+});
+
+// 4.1. Configuración de Autorización (NECESARIO para [Authorize])
+builder.Services.AddAuthorization();
+
+// --- INYECCIÓN DE DEPENDENCIAS ---
+
+// Email e Infraestructura
+builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
+builder.Services.AddTransient<EmailService>();
+
+// Servicio de JWT (Crucial para Login)
+builder.Services.AddScoped<IJwtService, JwtService>();
+
+// Servicios de Negocio
+builder.Services.AddScoped<IAttachmentsService, AttachmentsService>();
+builder.Services.AddScoped<IAvatarsService, AvatarsService>();
+builder.Services.AddScoped<IBadgesService, BadgesService>();
+builder.Services.AddScoped<ICategoriesService, CategoriesService>();
+builder.Services.AddScoped<ILanguagesService, LanguagesService>();
+builder.Services.AddScoped<IPageContentsService, PageContentsService>();
+builder.Services.AddScoped<IPagesService, PagesService>();
+builder.Services.AddScoped<IProfilesService, ProfilesService>();
+builder.Services.AddScoped<IProfileStoriesService, ProfileStoriesService>();
+builder.Services.AddScoped<IStoriesService, StoriesService>();
+builder.Services.AddScoped<IStoryCategoriesService, StoryCategoriesService>();
+builder.Services.AddScoped<IStoryLanguagesService, StoryLanguagesService>();
+builder.Services.AddScoped<IUnlockedAvatarsService, UnlockedAvatarsService>();
+builder.Services.AddScoped<IUnlockedBadgesService, UnlockedBadgesService>();
+builder.Services.AddScoped<IUsersService, UsersService>();
+builder.Services.AddScoped<IHealthCheckService, HealthCheckService>();
+
+// Configuración de CORS - Restringida según ambiente
+var allowedOrigins = Environment.GetEnvironmentVariable("ALLOWED_ORIGINS")?.Split(",") ?? new[] { "http://localhost:3000" };
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowSpecificOrigin",
+        policy => policy.WithOrigins(allowedOrigins)
+                        .AllowAnyHeader()
+                        .AllowAnyMethod()
+                        .AllowCredentials());
+});
+
+// Logging
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+
+var app = builder.Build();
+
+// --- PIPELINE DE MIDDLEWARES (EL ORDEN IMPORTA) ---
+
+// 0. Global Exception Handler (PRIMERO: captura todas las excepciones)
+app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
+
+// 1. URL de la App
+var appUrl = Environment.GetEnvironmentVariable("APP_URL");
+if (!string.IsNullOrEmpty(appUrl)) app.Urls.Add(appUrl);
+
+// 2. Swagger (solo en desarrollo)
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI(options =>
+    {
+        options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1");
+        options.RoutePrefix = string.Empty; // Swagger en la raíz
+    });
+}
+
+// 3. Seguridad y CORS
+app.UseCors("AllowSpecificOrigin");
+
+// 4. AUTENTICACIÓN Y AUTORIZACIÓN (OBLIGATORIO ANTES DE CONTROLLERS)
+app.UseAuthentication(); // ¿Quién es el usuario?
+app.UseAuthorization();  // ¿Tiene permiso?
+
+app.MapControllers();
+
+app.Run();
