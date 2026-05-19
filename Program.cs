@@ -17,7 +17,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Configuración de Kestrel para Docker
 builder.WebHost.ConfigureKestrel(options =>
 {
-    options.ListenAnyIP(80); 
+    options.ListenAnyIP(8080); 
 });
 
 // --- SERVICIOS BASE ---
