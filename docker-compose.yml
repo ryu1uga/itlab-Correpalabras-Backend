@@ -3,10 +3,10 @@ services:
     image: postgres
     environment:
       POSTGRES_USER: correpalabras
-      POSTGRES_PASSWORD: itlab
-      POSTGRES_DB: correpalabras_db
+      POSTGRES_PASSWORD: correpalabras
+      POSTGRES_DB: correpalabras
     ports:
-      - "5435:5432"
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
     command: ["postgres", "-c", "shared_preload_libraries=uuid-ossp"]
@@ -19,10 +19,8 @@ services:
       - "8080:8080"
     depends_on:
       - db
-    env_file:
-      - .env
     environment:
-      ConnectionStrings__DefaultConnection: "Host=db;Database=correpalabras_db;Username=correpalabras;Password=itlab"
+      ConnectionStrings__DefaultConnection: "Server=correpalabras;Database=correpalabras;Username=correpalabras;Password=correpalabras"
 
 volumes:
   postgres_data:
