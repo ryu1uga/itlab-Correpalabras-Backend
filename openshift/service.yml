@@ -1,10 +1,13 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: correpalabras-api
-  namespace: correpalabras
+  name: correpalabras-backend-git
+  namespace: dev-itlab
   labels:
-    app: correpalabras-api
+    app: correpalabras-backend-git
+    group: correpalabras-git-app
+  annotations:
+    description: Service for CorrePalabras Backend
 spec:
   type: ClusterIP
   ports:
@@ -13,4 +16,4 @@ spec:
       protocol: TCP
       name: http
   selector:
-    app: correpalabras-api
+    app: correpalabras-backend-git

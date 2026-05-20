@@ -1,234 +1,155 @@
-# OpenShift Deployment Guide para CorrePalabras API
+== INSTRUCCIONES PARA DESPLEGAR EN OPENSHIFT CON GITHUB WEBHOOK ==
 
-## Resumen de Cambios Realizados
+El proyecto está configurado para buildear automáticamente en OpenShift cuando hagas push a GitHub.
+Sigue estos pasos para completar la configuración:
 
-Se han implementado mejoras críticas para hacer el proyecto compatible con OpenShift:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-### 1. ✅ Dockerfile Corregido
-- **Cambio**: Se removió el `--environment=Development` hardcodeado
-- **Cambio**: Se agregó `ENV ASPNETCORE_ENVIRONMENT=Production` como default
-- **Razón**: OpenShift debe controlar el ambiente mediante variables de entorno
+PASO 1: CREAR EL SECRET CON VARIABLES DE ENTORNO EN OPENSHIFT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-**Antes:**
-```dockerfile
-ENTRYPOINT ["dotnet", "CorrePalabras.dll", "--environment=Development"]
-```
+Ejecuta el siguiente comando en tu CLI de OpenShift (reemplaza los valores):
 
-**Después:**
-```dockerfile
-ENV ASPNETCORE_ENVIRONMENT=Production
-ENTRYPOINT ["dotnet", "CorrePalabras.dll"]
-```
+oc create secret generic app-secrets \
+  --from-literal=db-user=tu_usuario_postgres \
+  --from-literal=db-password=tu_password_postgres \
+  --from-literal=app-url=http://correpalabras-backend-git-dev-itlab.apps.example.com \
+  --from-literal=jwt-key=tu_llave_jwt_super_secreta_123 \
+  --from-literal=cloudinary-cloud-name=tu_cloud_name \
+  --from-literal=cloudinary-api-key=tu_api_key \
+  --from-literal=cloudinary-api-secret=tu_api_secret \
+  -n dev-itlab
 
-### 2. ✅ .dockerignore Creado
-- Optimiza las imágenes Docker excluyendo archivos innecesarios
-- Reduce el tamaño de la imagen y el tiempo de build
+NOTA: Asegúrate de:
+  - Reemplazar todos los valores con tus datos reales
+  - El namespace sea "dev-itlab"
 
-### 3. ✅ Credenciales Removidas del Código
-- **appsettings.json**: Vacío de credenciales sensibles
-- **appsettings.Production.json**: Nuevo archivo sin credenciales
-- **Razón**: Las credenciales se inyectarán via Secrets de OpenShift
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-### 4. ✅ Health Check Verificado
-- El endpoint `/api/healthcheck` ya existe y funciona
-- OpenShift usa este endpoint para:
-  - **Liveness Probe**: Detectar si el pod está vivo
-  - **Readiness Probe**: Detectar si está listo para recibir tráfico
+PASO 2: APLICAR LOS YAML EN OPENSHIFT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-### 5. ✅ Archivos de OpenShift Creados
+Desde la raíz del proyecto, ejecuta:
 
-Se encuentran en `openshift/`:
+oc apply -f openshift/buildconfig.yml
+oc apply -f openshift/service.yml
+oc apply -f openshift/deploymentconfig.yml
+oc apply -f openshift/route.yml
 
-- **imagestream.yml**: Define la imagen Docker en OpenShift
-- **buildconfig.yml**: Configuración del build desde GitHub
-- **deploymentconfig.yml**: Configuración del deployment con:
-  - 3 replicas para alta disponibilidad
-  - Health checks (liveness y readiness)
-  - Limits y requests de recursos
-  - Manejo seguro de variables de entorno
-  - Contexto de seguridad (no-root, read-only filesystem)
-- **service.yml**: Expone la aplicación internamente
-- **route.yml**: Expone la aplicación al exterior (con HTTPS)
-- **secrets-config.yml**: Plantilla para secrets y ConfigMaps
+Verifica que se crearon correctamente:
 
-### 6. ✅ GitHub Actions Workflow Creado
+oc get bc -n dev-itlab
+oc get svc -n dev-itlab
+oc get dc -n dev-itlab
+oc get routes -n dev-itlab
 
-Archivo: `.github/workflows/build-and-deploy.yml`
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-**Pasos:**
-1. Build del proyecto .NET
-2. Ejecución de tests (opcional)
-3. Build y push a GitHub Container Registry
-4. Deployment automático en OpenShift
+PASO 3: OBTENER LA URL DEL WEBHOOK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
----
+Ejecuta este comando para obtener la URL del webhook:
 
-## Instrucciones de Deployment en OpenShift
+oc describe bc correpalabras-backend-git -n dev-itlab | grep -A5 "Webhook URL"
 
-### Paso 1: Preparación Inicial
+Copiarás una URL como esta:
+https://openshift-master.example.com/apis/build.openshift.io/v1/namespaces/dev-itlab/buildconfigs/correpalabras-backend-git/webhooks/correpalabras-webhook-secret/github
 
-1. **Instalar CLI de OpenShift:**
-   ```bash
-   # En Windows (si no está instalado)
-   # Descargar de: https://mirror.openshift.com/pub/openshift-v4/clients/ocp/latest/
-   ```
+NOTA IMPORTANTE: El "secret" es: correpalabras-webhook-secret
+(Es el que configuramos en buildconfig.yml)
 
-2. **Loguearse en OpenShift:**
-   ```bash
-   oc login --token=YOUR_TOKEN --server=https://your-openshift-server:6443
-   ```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-### Paso 2: Crear Namespace y Secrets
+PASO 4: REGISTRAR WEBHOOK EN GITHUB
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-1. **Ejecutar el archivo de secrets:**
-   ```bash
-   oc apply -f openshift/secrets-config.yml
-   ```
+1. Ve al repositorio: https://github.com/ryu1uga/itlab-Correpalabras-Backend
 
-2. **Actualizar los secrets con valores reales:**
-   ```bash
-   # Connection String
-   oc set env secret/correpalabras-db CONNECTION_STRING="Server=your-db;Database=correpalabras;..." -n correpalabras
+2. Haz clic en: Settings → Webhooks → Add webhook
 
-   # JWT Secrets
-   oc set env secret/correpalabras-secrets \
-     JWT_KEY="your-secret-key" \
-     JWT_ISSUER="your-issuer" \
-     JWT_AUDIENCE="your-audience" \
-     -n correpalabras
+3. Completa los campos:
 
-   # Email Configuration
-   oc set env secret/correpalabras-email \
-     SMTP_SERVER="your-smtp-server" \
-     SMTP_PORT="587" \
-     USERNAME="your-email" \
-     PASSWORD="your-password" \
-     FROM_ADDRESS="noreply@example.com" \
-     FROM_NAME="CorrePalabras" \
-     -n correpalabras
+   ✓ Payload URL: 
+     https://openshift-master.example.com/apis/build.openshift.io/v1/namespaces/dev-itlab/buildconfigs/correpalabras-backend-git/webhooks/correpalabras-webhook-secret/github
 
-   # ConfigMap para CORS
-   oc set env configmap/correpalabras-config \
-     ALLOWED_ORIGINS="https://your-frontend-url.com" \
-     -n correpalabras
-   ```
+   ✓ Content type: application/json
 
-### Paso 3: Configurar GitHub Actions Secrets
+   ✓ Which events would you like to trigger this webhook?
+     → Selecciona: "Push events" (o "Just the push event")
 
-En tu repositorio de GitHub, ir a: **Settings → Secrets and variables → Actions**
+   ✓ Active: ✓ (marcado)
 
-Agregar los siguientes secrets:
-- `OPENSHIFT_SERVER`: URL del servidor OpenShift (ej: https://api.openshift.example.com:6443)
-- `OPENSHIFT_TOKEN`: Token de autenticación de OpenShift
+4. Haz clic en "Add webhook"
 
-### Paso 4: Actualizar el Workflow
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-En `.github/workflows/build-and-deploy.yml`:
+PASO 5: VERIFICAR QUE TODO FUNCIONA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Reemplazar la URL del repositorio:
-```yaml
-git:
-  uri: https://github.com/YOUR_ORG/itlab-Correpalabras-Backend.git
-```
+Haz un push a la rama "main" del repositorio:
 
-### Paso 5: Hacer Push y Verificar Build
-
-```bash
-# Hacer push a main branch
+git add .
+git commit -m "Configurar OpenShift"
 git push origin main
 
-# Verificar que el workflow se ejecutó
-# En GitHub: Actions → Build and Deploy
-```
+Luego monitorea el build en OpenShift:
 
-### Paso 6: Verificar el Deployment
+oc logs -f bc/correpalabras-backend-git -n dev-itlab
 
-```bash
-# Ver status del deployment
-oc get deploymentconfig -n correpalabras
-oc get pods -n correpalabras
-oc logs dc/correpalabras-api -n correpalabras -f
+O en la UI de OpenShift:
+Builds → correpalabras-backend-git → Ver últimos builds
 
-# Ver la URL de acceso
-oc get route correpalabras-api -n correpalabras
-```
+El build debería pasar por las fases:
+1. Source (clonando del GitHub)
+2. Building (compilando con .NET SDK)
+3. Push (empujando imagen al registry)
+4. Deployment (desplegando pods)
 
----
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-## Configuración de Variables de Entorno
+PASO 6: ACCEDER A LA APLICACIÓN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Las siguientes variables se inyectarán automáticamente:
+Una vez que el deployment esté listo, obtén la URL:
 
-| Variable | Origen | Ejemplo |
-|----------|--------|---------|
-| `ASPNETCORE_ENVIRONMENT` | DeploymentConfig | `Production` |
-| `CONNECTION_STRING` | Secret: correpalabras-db | PostgreSQL connection string |
-| `JWT_KEY` | Secret: correpalabras-secrets | Secret key para JWT |
-| `JWT_ISSUER` | Secret: correpalabras-secrets | Issuer del JWT |
-| `JWT_AUDIENCE` | Secret: correpalabras-secrets | Audience del JWT |
-| `ALLOWED_ORIGINS` | ConfigMap | URLs permitidas para CORS |
-| `EMAIL_SMTP_SERVER` | Secret: correpalabras-email | mail.smtp2go.com |
-| `EMAIL_USERNAME` | Secret: correpalabras-email | Tu usuario SMTP |
-| `EMAIL_PASSWORD` | Secret: correpalabras-email | Tu contraseña SMTP |
+oc get routes -n dev-itlab
 
----
+Verás algo como:
+NAME                          HOST/PORT                                         PATH   SERVICES                      PORT   TERMINATION
+correpalabras-backend-git     correpalabras-backend-git-dev-itlab.apps...      http   correpalabras-backend-git    8080   edge
 
-## Health Checks
+Accede a: https://correpalabras-backend-git-dev-itlab.apps.example.com/swagger
 
-OpenShift verifica constantemente la salud de la aplicación:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-```
-GET /api/healthcheck
-```
+TROUBLESHOOTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-**Response exitosa:**
-```json
-{
-  "success": true,
-  "data": {
-    "status": "ok"
-  }
-}
-```
+❌ El build falla: Ver logs
+   oc logs -f bc/correpalabras-backend-git -n dev-itlab
 
-- **Liveness Probe**: Cada 10 segundos (después de 30s de delay)
-- **Readiness Probe**: Cada 5 segundos (después de 10s de delay)
-- **FailureThreshold**: 3 intentos fallidos = reinicio
+❌ Los pods no inician: Ver eventos del deployment
+   oc describe dc correpalabras-backend-git -n dev-itlab
 
----
+❌ Las variables de entorno no funcionan:
+   - Verifica que el Secret existe: oc get secrets -n dev-itlab
+   - Verifica los datos: oc describe secret app-secrets -n dev-itlab
 
-## Autoscaling (Opcional)
+❌ El webhook no triguer builds:
+   - En GitHub, ve a Settings → Webhooks
+   - Verifica que la URL sea correcta
+   - Mira los "Recent Deliveries" para ver si hay errores
 
-Para agregar autoscaling horizontal:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-```bash
-oc autoscale dc/correpalabras-api --min=2 --max=5 --cpu-percent=80 -n correpalabras
-```
+ARCHIVOS MODIFICADOS/CREADOS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
----
+✓ Dockerfile                          - Modificado (removido --environment=Development)
+✓ openshift/buildconfig.yml           - CREADO (build automático desde GitHub)
+✓ openshift/deploymentconfig.yml      - CREADO (configuración del deployment)
+✓ openshift/service.yml               - CREADO (servicio interno)
+✓ openshift/route.yml                 - CREADO (exposición pública con TLS)
+✓ OPENSHIFT_DEPLOYMENT.md             - CREADO (este archivo)
 
-## Troubleshooting
-
-### El pod no inicia
-```bash
-oc describe pod <pod-name> -n correpalabras
-oc logs <pod-name> -n correpalabras
-```
-
-### Error de conexión a base de datos
-- Verificar que la connection string está correcta en el secret
-- Verificar que PostgreSQL es accesible desde el pod
-
-### Error de autenticación JWT
-- Verificar que JWT_KEY, JWT_ISSUER y JWT_AUDIENCE están configurados
-
-### CORS errors
-- Verificar que ALLOWED_ORIGINS incluye tu frontend URL
-
----
-
-## Documentación Adicional
-
-- [OpenShift Docs](https://docs.openshift.com/)
-- [GitHub Actions](https://docs.github.com/en/actions)
-- [.NET en Containers](https://learn.microsoft.com/en-us/dotnet/core/docker/building-net-docker-images)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
