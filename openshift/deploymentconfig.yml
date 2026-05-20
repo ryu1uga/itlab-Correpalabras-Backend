@@ -1,0 +1,136 @@
+apiVersion: v1
+kind: DeploymentConfig
+metadata:
+  name: correpalabras-api
+  namespace: correpalabras
+spec:
+  strategy:
+    type: Rolling
+    rollingParams:
+      updatePeriodSeconds: 1
+      intervalSeconds: 1
+      timeoutSeconds: 600
+      maxSurge: 25%
+      maxUnavailable: 25%
+  replicas: 3
+  selector:
+    app: correpalabras-api
+  template:
+    metadata:
+      labels:
+        app: correpalabras-api
+    spec:
+      serviceAccountName: default
+      containers:
+        - name: correpalabras-api
+          image: correpalabras/correpalabras-api:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Production"
+            - name: ASPNETCORE_HTTP_PORTS
+              value: "8080"
+            - name: ASPNETCORE_URLS
+              value: "http://+:8080"
+            - name: CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: correpalabras-db
+                  key: connection-string
+            - name: JWT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: correpalabras-secrets
+                  key: jwt-key
+            - name: JWT_ISSUER
+              valueFrom:
+                secretKeyRef:
+                  name: correpalabras-secrets
+                  key: jwt-issuer
+            - name: JWT_AUDIENCE
+              valueFrom:
+                secretKeyRef:
+                  name: correpalabras-secrets
+                  key: jwt-audience
+            - name: ALLOWED_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: correpalabras-config
+                  key: allowed-origins
+            - name: EMAIL_SMTP_SERVER
+              valueFrom:
+                secretKeyRef:
+                  name: correpalabras-email
+                  key: smtp-server
+            - name: EMAIL_SMTP_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: correpalabras-email
+                  key: smtp-port
+            - name: EMAIL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: correpalabras-email
+                  key: username
+            - name: EMAIL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: correpalabras-email
+                  key: password
+            - name: EMAIL_FROM_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: correpalabras-email
+                  key: from-address
+            - name: EMAIL_FROM_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: correpalabras-email
+                  key: from-name
+          livenessProbe:
+            httpGet:
+              path: /api/healthcheck
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/healthcheck
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+            requests:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+  triggers:
+    - type: ImageChange
+      imageChangeParams:
+        automatic: true
+        containerNames:
+          - correpalabras-api
+        from:
+          kind: ImageStreamTag
+          name: correpalabras-api:latest

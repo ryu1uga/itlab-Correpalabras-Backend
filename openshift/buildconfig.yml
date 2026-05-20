@@ -1,0 +1,39 @@
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: correpalabras-api
+  namespace: correpalabras
+spec:
+  triggers:
+    - type: GitHub
+      github:
+        secret: github-webhook-secret
+    - type: ImageChange
+      imageChange:
+        from:
+          kind: ImageStreamTag
+          name: correpalabras-api:latest
+    - type: ConfigChange
+  source:
+    type: Git
+    git:
+      uri: https://github.com/YOUR_GITHUB_ORG/itlab-Correpalabras-Backend.git
+      ref: main
+  strategy:
+    type: Docker
+    dockerStrategy:
+      from:
+        kind: ImageStreamTag
+        name: dotnet:7.0
+        namespace: openshift
+  output:
+    to:
+      kind: ImageStreamTag
+      name: correpalabras-api:latest
+  resources:
+    limits:
+      cpu: "2"
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi

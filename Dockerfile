@@ -3,7 +3,8 @@ FROM mcr.microsoft.com/dotnet/aspnet:7.0 AS base
 WORKDIR /app
 EXPOSE 8080
 
-#ENV ASPNETCORE_HTTP_PORTS 8080
+ENV ASPNETCORE_HTTP_PORTS=8080
+ENV ASPNETCORE_URLS=http://+:8080
 
 # Use the SDK image for building the app
 FROM mcr.microsoft.com/dotnet/sdk:7.0 AS build
@@ -23,4 +24,8 @@ RUN dotnet publish "CorrePalabras.csproj" -c $BUILD_CONFIGURATION -o /app/publis
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
-ENTRYPOINT ["dotnet", "CorrePalabras.dll", "--environment=Development"]
+
+# Use ASPNETCORE_ENVIRONMENT variable for environment detection
+# Default to Production if not specified
+ENV ASPNETCORE_ENVIRONMENT=Production
+ENTRYPOINT ["dotnet", "CorrePalabras.dll"]
