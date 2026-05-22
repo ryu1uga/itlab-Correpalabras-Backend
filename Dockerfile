@@ -18,13 +18,13 @@ RUN dotnet restore "./CorrePalabras.csproj"
 
 COPY . .
 
-RUN dotnet build "CorrePalabras.csproj" -c $BUILD_CONFIGURATION -o /app/build
+RUN dotnet build "CorrePalabras.csproj" -c ${BUILD_CONFIGURATION} -o /app/build
 
 FROM build AS publish
 
 ARG BUILD_CONFIGURATION=Release
 
-RUN dotnet publish "CorrePalabras.csproj" -c $BUILD_CONFIGURATION -o /app/publish
+RUN dotnet publish "CorrePalabras.csproj" -c ${BUILD_CONFIGURATION} -o /app/publish
 
 FROM base AS final
 
