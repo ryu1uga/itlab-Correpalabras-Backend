@@ -10,7 +10,10 @@ using Microsoft.OpenApi.Models;
 using System.Text;
 
 // 1. Cargar variables de entorno del archivo .env
-DotNetEnv.Env.Load();
+if (builder.Environment.IsDevelopment())
+{
+    DotNetEnv.Env.Load();
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -54,9 +57,9 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 // 3. Configuración de la Base de Datos (PostgreSQL)
-var connectionString = Environment.GetEnvironmentVariable("CONNECTION_STRING") 
-    ?? builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new Exception("Falta la connection string en variable de entorno CONNECTION_STRING o en appsettings.json");
+var connectionString =
+    builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new Exception("Falta ConnectionStrings__DefaultConnection");
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString));
 
@@ -135,20 +138,13 @@ var app = builder.Build();
 // 0. Global Exception Handler (PRIMERO: captura todas las excepciones)
 app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 
-// 1. URL de la App
-var appUrl = Environment.GetEnvironmentVariable("APP_URL");
-if (!string.IsNullOrEmpty(appUrl)) app.Urls.Add(appUrl);
-
 // 2. Swagger (solo en desarrollo)
-if (app.Environment.IsDevelopment())
+app.UseSwagger();
+app.UseSwaggerUI(options =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI(options =>
-    {
-        options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1");
-        options.RoutePrefix = string.Empty; // Swagger en la raíz
-    });
-}
+    options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1");
+    options.RoutePrefix = string.Empty;
+});
 
 // 3. Seguridad y CORS
 app.UseCors("AllowSpecificOrigin");
