@@ -9,13 +9,13 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
 
+var builder = WebApplication.CreateBuilder(args);
+
 // 1. Cargar variables de entorno del archivo .env
 if (builder.Environment.IsDevelopment())
 {
     DotNetEnv.Env.Load();
 }
-
-var builder = WebApplication.CreateBuilder(args);
 
 // Configuración de Kestrel para Docker
 builder.WebHost.ConfigureKestrel(options =>
