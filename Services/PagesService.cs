@@ -1,5 +1,3 @@
-using CloudinaryDotNet;
-using CloudinaryDotNet.Actions;
 using CorrePalabras.Data;
 using CorrePalabras.DTOs.Common;
 using CorrePalabras.Models.Common;
@@ -16,17 +14,12 @@ namespace CorrePalabras.Services
     public class PagesService : IPagesService
     {
         private readonly ApplicationDbContext _context;
-        private readonly Cloudinary _cloudinary;
+        private readonly ISynologyService _synologyService;
 
-        public PagesService(ApplicationDbContext context)
+        public PagesService(ApplicationDbContext context, ISynologyService synologyService)
         {
             _context = context;
-            var account = new Account(
-                Environment.GetEnvironmentVariable("CLOUDINARY_CLOUD_NAME"),
-                Environment.GetEnvironmentVariable("CLOUDINARY_API_KEY"),
-                Environment.GetEnvironmentVariable("CLOUDINARY_API_SECRET")
-            );
-            _cloudinary = new Cloudinary(account);
+            _synologyService = synologyService;
         }
 
         public async Task<IEnumerable<object>> GetAllAsync()
@@ -52,12 +45,15 @@ namespace CorrePalabras.Services
                 Id = Guid.NewGuid(),
                 StoryId = pageDTO.StoryId,
                 PageOrder = pageDTO.PageOrder,
-                ImageUrl = pageDTO.ImageUrl // URL por defecto si existe
+                ImageUrl = pageDTO.ImageUrl
             };
 
             if (imageFile != null && imageFile.Length > 0)
             {
-                page.ImageUrl = await UploadToCloudinary(imageFile);
+                string folderPath = $"/CORREPALABRASAPPDEV/img/stories/{pageDTO.StoryId}/pages";
+                string fileExtension = Path.GetExtension(avatarImage.FileName);
+                string fileName = $"{pageDTO.StoryId}_page{pageDTO.PageOrder}{fileExtension}";
+                page.ImageUrl = await _synologyService.UploadAndShareAsync(imageFile, folderPath, fileName);
             }
 
             _context.Pages.Add(page);
@@ -75,7 +71,11 @@ namespace CorrePalabras.Services
 
             if (imageFile != null && imageFile.Length > 0)
             {
-                page.ImageUrl = await UploadToCloudinary(imageFile);
+                string folderPath = $"/CORREPALABRASAPPDEV/img/stories/{pageDTO.StoryId}/pages";
+                await _synologyService.DeleteBySharingUrlAsync(page.ImageUrl);
+                string fileExtension = Path.GetExtension(avatarImage.FileName);
+                string fileName = $"{pageDTO.StoryId}_page{pageDTO.PageOrder}{fileExtension}";
+                page.ImageUrl = await _synologyService.UploadAndShareAsync(imageFile, FolderPath, fileName);
             }
 
             page.StoryId = pageDTO.StoryId;
@@ -93,36 +93,12 @@ namespace CorrePalabras.Services
 
             if (!string.IsNullOrEmpty(page.ImageUrl))
             {
-                await DeleteFromCloudinary(page.ImageUrl);
+                await _synologyService.DeleteBySharingUrlAsync(page.ImageUrl);
             }
 
             _context.Pages.Remove(page);
             await _context.SaveChangesAsync();
             return "Página eliminada correctamente.";
-        }
-
-        private async Task<string> UploadToCloudinary(IFormFile file)
-        {
-            using var stream = file.OpenReadStream();
-            var uploadParams = new ImageUploadParams
-            {
-                File = new FileDescription(file.FileName, stream),
-                Folder = "corre_palabras_pages"
-            };
-            var result = await _cloudinary.UploadAsync(uploadParams);
-            if (result.Error != null) throw new Exception(result.Error.Message);
-            return result.SecureUrl.ToString();
-        }
-
-        private async Task DeleteFromCloudinary(string url)
-        {
-            var uri = new Uri(url);
-            var publicId = string.Join("/", uri.AbsolutePath.Split('/').Skip(5));
-            var dotIndex = publicId.IndexOf('.');
-            if (dotIndex >= 0) publicId = publicId.Substring(0, dotIndex);
-
-            var result = await _cloudinary.DestroyAsync(new DeletionParams(publicId));
-            if (result.Error != null) throw new Exception("Error al eliminar imagen de Cloudinary.");
         }
     }
 }

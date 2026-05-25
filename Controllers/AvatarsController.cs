@@ -37,18 +37,21 @@ namespace CorrePalabras.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> PostAvatar([FromForm] IFormFile? avatarImage, [FromForm] Guid storyId, [FromHeader(Name = "UserId")] Guid userId)
+        public async Task<IActionResult> PostAvatar([FromForm] IFormFile avatarImage, [FromForm] Guid? storyId, [FromHeader(Name = "UserId")] Guid userId)
         {
-            try {
-                var result = await _service.CreateAsync(avatarImage!, storyId);
+            try 
+            {
+                var result = await _service.CreateAsync(avatarImage, storyId);
                 return SuccessResponse(result);
-            } catch (Exception ex) {
+            } 
+            catch (Exception ex) 
+            {
                 return ErrorResponse(ex.Message);
             }
         }
 
         [HttpPut("{id}")]
-        public async Task<IActionResult> PutAvatar(Guid id, [FromForm] IFormFile? avatarImage, [FromForm] Guid storyId, [FromHeader(Name = "UserId")] Guid userId)
+        public async Task<IActionResult> PutAvatar(Guid id, [FromForm] IFormFile? avatarImage, [FromForm] Guid? storyId, [FromHeader(Name = "UserId")] Guid userId)
         {
             try {
                 var result = await _service.UpdateAsync(id, avatarImage, storyId);

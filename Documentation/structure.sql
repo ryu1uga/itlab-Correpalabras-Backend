@@ -27,7 +27,7 @@ ALTER TABLE public."Attachment" OWNER TO correpalabras;
 
 CREATE TABLE public."Avatar" (
     "Id" uuid NOT NULL,
-    "StoryId" uuid NOT NULL,
+    "StoryId" uuid,
     "AvatarUrl" character varying (255) NOT NULL
 );
 
