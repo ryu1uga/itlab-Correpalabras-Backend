@@ -57,39 +57,55 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 // 3. Configuración de la Base de Datos (PostgreSQL)
-var connectionString =
-    builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new Exception("Falta ConnectionStrings__DefaultConnection");
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(connectionString));
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    builder.Logging.AddConsole();
+    var tempLogger = builder.Logging.CreateLogger("Startup");
+    tempLogger.LogWarning("ConnectionStrings__DefaultConnection no definida. Configure la variable en OpenShift (ConnectionStrings__DefaultConnection).");
+}
+else
+{
+    builder.Services.AddDbContext<ApplicationDbContext>(options =>
+        options.UseNpgsql(connectionString));
+}
+// ...existing code...
 
 // 4. Configuración de Autenticación JWT
-var jwtKey = Environment.GetEnvironmentVariable("JWT_KEY") ?? throw new Exception("Falta la variable JWT_KEY en el .env");
-var jwtIssuer = Environment.GetEnvironmentVariable("JWT_ISSUER") ?? throw new Exception("Falta la variable JWT_ISSUER en el .env");
-var jwtAudience = Environment.GetEnvironmentVariable("JWT_AUDIENCE") ?? throw new Exception("Falta la variable JWT_AUDIENCE en el .env");
+var jwtKey = builder.Configuration["JWT_KEY"];
+var jwtIssuer = builder.Configuration["JWT_ISSUER"];
+var jwtAudience = builder.Configuration["JWT_AUDIENCE"];
 
-builder.Services.AddAuthentication(options => {
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-})
-.AddJwtBearer(options =>
+if (!string.IsNullOrEmpty(jwtKey) && !string.IsNullOrEmpty(jwtIssuer) && !string.IsNullOrEmpty(jwtAudience))
 {
-    options.TokenValidationParameters = new TokenValidationParameters
+    builder.Services.AddAuthentication(options => {
+        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    })
+    .AddJwtBearer(options =>
     {
-        ValidateIssuer = true,
-        ValidateAudience = true,
-        ValidateLifetime = true,
-        ValidateIssuerSigningKey = true,
-        ValidIssuer = jwtIssuer,
-        ValidAudience = jwtAudience,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
-    };
-});
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtIssuer,
+            ValidAudience = jwtAudience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+        };
+    });
 
-// 4.1. Configuración de Autorización (NECESARIO para [Authorize])
-builder.Services.AddAuthorization();
-
-// --- INYECCIÓN DE DEPENDENCIAS ---
+    // 4.1. Configuración de Autorización (NECESARIO para [Authorize])
+    builder.Services.AddAuthorization();
+}
+else
+{
+    var tempLogger = builder.Logging.CreateLogger("Startup");
+    tempLogger.LogWarning("Variables JWT incompletas (JWT_KEY/JWT_ISSUER/JWT_AUDIENCE). Autenticación JWT no configurada.");
+    // Registrar AddAuthorization aunque no se configure JWT puede ser opcional
+    builder.Services.AddAuthorization();
+}
 
 // Email e Infraestructura
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
