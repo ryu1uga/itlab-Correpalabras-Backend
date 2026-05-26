@@ -141,7 +141,7 @@ namespace CorrePalabras.Services
         {
             var storyId = Guid.NewGuid();
             string folderPath = $"/CORREPALABRASAPPDEV/img/stories/{storyId}";
-            string fileExtension = Path.GetExtension(avatarImage.FileName);
+            string fileExtension = Path.GetExtension(thumbnail.FileName);
             string fileName = $"{storyId}_thumbnail{fileExtension}";
             var imageUrl = await _synologyService.UploadAndShareAsync(thumbnail, folderPath, fileName);
             var story = new Story {
@@ -167,7 +167,7 @@ namespace CorrePalabras.Services
             {
                 string folderPath = $"/CORREPALABRASAPPDEV/img/stories/{id}";
                 await _synologyService.DeleteBySharingUrlAsync(story.Thumbnail);
-                string fileExtension = Path.GetExtension(avatarImage.FileName);
+                string fileExtension = Path.GetExtension(thumbnail.FileName);
                 string fileName = $"{id}_thumbnail{fileExtension}";
                 story.Thumbnail = await _synologyService.UploadAndShareAsync(thumbnail, folderPath, fileName);
             }

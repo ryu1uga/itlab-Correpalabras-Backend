@@ -6,7 +6,7 @@ namespace CorrePalabras.Models.Common
     public class Avatar
     {
         public Guid Id { get; set; } = Guid.NewGuid();
-        public Guid StoryId { get; set; }
+        public Guid? StoryId { get; set; }
         public string AvatarUrl { get; set; } = "";
 
         public Story? Story { get; set; }

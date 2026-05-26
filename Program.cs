@@ -61,7 +61,10 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 if (string.IsNullOrWhiteSpace(connectionString))
 {
     builder.Logging.AddConsole();
-    var tempLogger = builder.Logging.CreateLogger("Startup");
+    // CORRECCIÓN: Usar LoggerFactory para crear el logger
+    using var loggerFactory = LoggerFactory.Create(logging => logging.AddConsole());
+    var tempLogger = loggerFactory.CreateLogger("Startup");
+    
     tempLogger.LogWarning("ConnectionStrings__DefaultConnection no definida. Configure la variable en OpenShift (ConnectionStrings__DefaultConnection).");
 }
 else
@@ -69,7 +72,6 @@ else
     builder.Services.AddDbContext<ApplicationDbContext>(options =>
         options.UseNpgsql(connectionString));
 }
-// ...existing code...
 
 // 4. Configuración de Autenticación JWT
 var jwtKey = builder.Configuration["JWT_KEY"];
@@ -101,12 +103,13 @@ if (!string.IsNullOrEmpty(jwtKey) && !string.IsNullOrEmpty(jwtIssuer) && !string
 }
 else
 {
-    var tempLogger = builder.Logging.CreateLogger("Startup");
+    // CORRECCIÓN: Usar LoggerFactory para crear el logger
+    using var loggerFactory = LoggerFactory.Create(logging => logging.AddConsole());
+    var tempLogger = loggerFactory.CreateLogger("Startup");
+    
     tempLogger.LogWarning("Variables JWT incompletas (JWT_KEY/JWT_ISSUER/JWT_AUDIENCE). Autenticación JWT no configurada.");
-    // Registrar AddAuthorization aunque no se configure JWT puede ser opcional
     builder.Services.AddAuthorization();
 }
-
 // Email e Infraestructura
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
 builder.Services.AddTransient<EmailService>();
