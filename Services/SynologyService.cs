@@ -1,3 +1,4 @@
+using CorrePalabras.Services.Interfaces;
 using Microsoft.AspNetCore.Http;
 using System;
 using System.IO;
@@ -118,11 +119,5 @@ namespace CorrePalabras.Services
         public class SynologyLoginResponse : SynologyBaseResponse { [JsonPropertyName("data")] public LoginData? Data { get; set; } public class LoginData { [JsonPropertyName("sid")] public string Sid { get; set; } = string.Empty; } }
         public class SynologySharingResponse : SynologyBaseResponse { [JsonPropertyName("data")] public SharingData? Data { get; set; } public class SharingData { [JsonPropertyName("links")] public SharingLink[] Links { get; set; } = Array.Empty<SharingLink>(); } public class SharingLink { [JsonPropertyName("id")] public string Id { get; set; } = string.Empty; [JsonPropertyName("url")] public string Url { get; set; } = string.Empty; [JsonPropertyName("path")] public string Path { get; set; } = string.Empty; } }
         #endregion
-    }
-
-    public interface ISynologyService
-    {
-        Task<string> UploadAndShareAsync(IFormFile file, string destinationFolder);
-        Task DeleteBySharingUrlAsync(string sharingUrl);
     }
 }
