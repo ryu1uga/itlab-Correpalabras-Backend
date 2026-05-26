@@ -131,7 +131,7 @@ namespace CorrePalabras.Services
                 .Select(s => new { StoryId = s.Id, s.Title, Reads = s.Counter }).ToListAsync();
         }
 
-        public async Task<object> GetMostReadByGenderAsync(string gender) =>
+        public async Task<IEnumerable<object>> GetMostReadByGenderAsync(string gender) =>
             await _context.ProfileStories
                 .Where(ps => ps.Profile.Gender.ToLower() == gender.ToLower())
                 .Select(ps => ps.StoryLanguage.Story).Distinct().OrderByDescending(s => s.Counter).Take(5)
