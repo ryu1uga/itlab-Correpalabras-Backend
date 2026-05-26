@@ -1,3 +1,5 @@
+using CloudinaryDotNet;
+using CloudinaryDotNet.Actions;
 using CorrePalabras.Data;
 using CorrePalabras.DTOs.Common;
 using CorrePalabras.Models.Common;
@@ -14,12 +16,19 @@ namespace CorrePalabras.Services
     public class AttachmentsService : IAttachmentsService
     {
         private readonly ApplicationDbContext _context;
-        private readonly ISynologyService _synologyService;
+        private readonly Cloudinary _cloudinary;
 
-        public AttachmentsService(ApplicationDbContext context, ISynologyService synologyService)
+        public AttachmentsService(ApplicationDbContext context)
         {
             _context = context;
-            _synologyService = synologyService;
+
+            // Configuración de Cloudinary desde variables de entorno
+            var account = new Account(
+                Environment.GetEnvironmentVariable("CLOUDINARY_CLOUD_NAME"),
+                Environment.GetEnvironmentVariable("CLOUDINARY_API_KEY"),
+                Environment.GetEnvironmentVariable("CLOUDINARY_API_SECRET")
+            );
+            _cloudinary = new Cloudinary(account);
         }
 
         public async Task<IEnumerable<object>> GetAllAsync()
@@ -60,10 +69,7 @@ namespace CorrePalabras.Services
 
             if (file != null && file.Length > 0)
             {
-                string folderPath = $"/CORREPALABRASAPPDEV/img/stories/{attachmentDTO.StoryId}";
-                string fileExtension = Path.GetExtension(file.FileName);
-                string fileName = $"{attachmentDTO.StoryId}_attachment{fileExtension}";
-                imageUrl = await _synologyService.UploadAndShareAsync(file, folderPath, fileName);
+                imageUrl = await UploadImageAsync(file);
             }
 
             var attachment = new Attachment
@@ -89,11 +95,7 @@ namespace CorrePalabras.Services
 
             if (file != null && file.Length > 0)
             {
-                string folderPath = $"/CORREPALABRASAPPDEV/img/stories/{attachmentDTO.StoryId}";
-                await _synologyService.DeleteBySharingUrlAsync(attachment.ImageUrl);
-                string fileExtension = Path.GetExtension(file.FileName);
-                string fileName = $"{attachmentDTO.StoryId}_attachment{fileExtension}";
-                attachment.ImageUrl = await _synologyService.UploadAndShareAsync(file, folderPath, fileName);
+                attachment.ImageUrl = await UploadImageAsync(file);
             }
 
             attachment.StoryId = attachmentDTO.StoryId;
@@ -114,12 +116,37 @@ namespace CorrePalabras.Services
 
             if (!string.IsNullOrEmpty(attachment.ImageUrl))
             {
-                await _synologyService.DeleteBySharingUrlAsync(attachment.ImageUrl);
+                await DeleteImageAsync(attachment.ImageUrl);
             }
 
             _context.Attachments.Remove(attachment);
             await _context.SaveChangesAsync();
             return "Archivo eliminado correctamente.";
+        }
+
+        // Métodos privados auxiliares para Cloudinary
+        private async Task<string> UploadImageAsync(IFormFile file)
+        {
+            using var stream = file.OpenReadStream();
+            var uploadParams = new ImageUploadParams
+            {
+                File = new FileDescription(file.FileName, stream),
+                Folder = "corre_palabras_attachments"
+            };
+            var result = await _cloudinary.UploadAsync(uploadParams);
+            if (result.Error != null) throw new Exception(result.Error.Message);
+            return result.SecureUrl.ToString();
+        }
+
+        private async Task DeleteImageAsync(string imageUrl)
+        {
+            var uri = new Uri(imageUrl);
+            var publicId = string.Join("/", uri.AbsolutePath.Split('/').Skip(5));
+            var dotIndex = publicId.IndexOf('.');
+            if (dotIndex >= 0) publicId = publicId.Substring(0, dotIndex);
+
+            var result = await _cloudinary.DestroyAsync(new DeletionParams(publicId));
+            if (result.Error != null) throw new Exception("No se pudo eliminar la imagen de Cloudinary.");
         }
     }
 }

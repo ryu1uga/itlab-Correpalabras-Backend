@@ -1,3 +1,5 @@
+using CloudinaryDotNet;
+using CloudinaryDotNet.Actions;
 using CorrePalabras.Data;
 using CorrePalabras.DTOs.Common;
 using CorrePalabras.Models.Common;
@@ -14,12 +16,17 @@ namespace CorrePalabras.Services
     public class StoriesService : IStoriesService
     {
         private readonly ApplicationDbContext _context;
-        private readonly ISynologyService _synologyService;
+        private readonly Cloudinary _cloudinary;
 
-        public StoriesService(ApplicationDbContext context, ISynologyService synologyService)
+        public StoriesService(ApplicationDbContext context)
         {
             _context = context;
-            _synologyService = synologyService;
+            var account = new Account(
+                Environment.GetEnvironmentVariable("CLOUDINARY_CLOUD_NAME"),
+                Environment.GetEnvironmentVariable("CLOUDINARY_API_KEY"),
+                Environment.GetEnvironmentVariable("CLOUDINARY_API_SECRET")
+            );
+            _cloudinary = new Cloudinary(account);
         }
 
         public async Task<IEnumerable<object>> GetAllAsync()
@@ -131,7 +138,7 @@ namespace CorrePalabras.Services
                 .Select(s => new { StoryId = s.Id, s.Title, Reads = s.Counter }).ToListAsync();
         }
 
-        public async Task<object> GetMostReadByGenderAsync(string gender) =>
+        public async Task<IEnumerable<object>> GetMostReadByGenderAsync(string gender) =>
             await _context.ProfileStories
                 .Where(ps => ps.Profile.Gender.ToLower() == gender.ToLower())
                 .Select(ps => ps.StoryLanguage.Story).Distinct().OrderByDescending(s => s.Counter).Take(5)
@@ -139,13 +146,9 @@ namespace CorrePalabras.Services
 
         public async Task<StoryDTO> CreateAsync(StoryDTO dto, IFormFile thumbnail)
         {
-            var storyId = Guid.NewGuid();
-            string folderPath = $"/CORREPALABRASAPPDEV/img/stories/{storyId}";
-            string fileExtension = Path.GetExtension(avatarImage.FileName);
-            string fileName = $"{storyId}_thumbnail{fileExtension}";
-            var imageUrl = await _synologyService.UploadAndShareAsync(thumbnail, folderPath, fileName);
+            var imageUrl = await UploadToCloudinary(thumbnail, "corre_palabras_thumbnails");
             var story = new Story {
-                Id = storyId, Author = dto.Author, Illustrator = dto.Illustrator,
+                Id = Guid.NewGuid(), Author = dto.Author, Illustrator = dto.Illustrator,
                 Title = dto.Title, CountPages = dto.CountPages, Thumbnail = imageUrl, UpdatedAt = DateTime.UtcNow
             };
 
@@ -165,11 +168,8 @@ namespace CorrePalabras.Services
 
             if (thumbnail != null && thumbnail.Length > 0)
             {
-                string folderPath = $"/CORREPALABRASAPPDEV/img/stories/{id}";
-                await _synologyService.DeleteBySharingUrlAsync(story.Thumbnail);
-                string fileExtension = Path.GetExtension(avatarImage.FileName);
-                string fileName = $"{id}_thumbnail{fileExtension}";
-                story.Thumbnail = await _synologyService.UploadAndShareAsync(thumbnail, folderPath, fileName);
+                if (!string.IsNullOrEmpty(story.Thumbnail)) await DeleteFromCloudinary(story.Thumbnail);
+                story.Thumbnail = await UploadToCloudinary(thumbnail, "corre_palabras_thumbnails");
             }
 
             story.Author = dto.Author; story.Illustrator = dto.Illustrator;
@@ -189,24 +189,30 @@ namespace CorrePalabras.Services
 
             if (story == null) throw new KeyNotFoundException();
 
-            if (!string.IsNullOrEmpty(story.Thumbnail)) 
-            {
-                await _synologyService.DeleteBySharingUrlAsync(story.Thumbnail);
-            }
-
-            foreach (var p in story.Pages.Where(p => !string.IsNullOrEmpty(p.ImageUrl))) 
-            {
-                await _synologyService.DeleteBySharingUrlAsync(p.ImageUrl);
-            }
-
-            foreach (var a in story.Attachments.Where(a => !string.IsNullOrEmpty(a.ImageUrl))) 
-            {
-                await _synologyService.DeleteBySharingUrlAsync(a.ImageUrl);
-            }
+            // Limpieza de Cloudinary
+            if (!string.IsNullOrEmpty(story.Thumbnail)) await DeleteFromCloudinary(story.Thumbnail);
+            foreach (var p in story.Pages.Where(p => !string.IsNullOrEmpty(p.ImageUrl))) await DeleteFromCloudinary(p.ImageUrl);
+            foreach (var a in story.Attachments.Where(a => !string.IsNullOrEmpty(a.ImageUrl))) await DeleteFromCloudinary(a.ImageUrl);
 
             _context.Stories.Remove(story);
             await _context.SaveChangesAsync();
             return "Cuento eliminado correctamente.";
+        }
+
+        private async Task<string> UploadToCloudinary(IFormFile file, string folder)
+        {
+            using var stream = file.OpenReadStream();
+            var result = await _cloudinary.UploadAsync(new ImageUploadParams { File = new FileDescription(file.FileName, stream), Folder = folder });
+            if (result.Error != null) throw new Exception(result.Error.Message);
+            return result.SecureUrl.ToString();
+        }
+
+        private async Task DeleteFromCloudinary(string url)
+        {
+            var uri = new Uri(url);
+            var segments = uri.AbsolutePath.Split('/');
+            var publicId = $"{segments[^2]}/{segments[^1].Split('.')[0]}";
+            await _cloudinary.DestroyAsync(new DeletionParams(publicId));
         }
     }
 }

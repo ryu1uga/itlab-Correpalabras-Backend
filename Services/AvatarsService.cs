@@ -1,3 +1,5 @@
+using CloudinaryDotNet;
+using CloudinaryDotNet.Actions;
 using CorrePalabras.Data;
 using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
@@ -13,53 +15,62 @@ namespace CorrePalabras.Services
     public class AvatarsService : IAvatarsService
     {
         private readonly ApplicationDbContext _context;
-        private readonly ISynologyService _synologyService;
+        private readonly Cloudinary _cloudinary;
 
-        public AvatarsService(ApplicationDbContext context, ISynologyService synologyService)
+        public AvatarsService(ApplicationDbContext context)
         {
             _context = context;
-            _synologyService = synologyService;
+            var account = new Account(
+                Environment.GetEnvironmentVariable("CLOUDINARY_CLOUD_NAME"),
+                Environment.GetEnvironmentVariable("CLOUDINARY_API_KEY"),
+                Environment.GetEnvironmentVariable("CLOUDINARY_API_SECRET")
+            );
+            _cloudinary = new Cloudinary(account);
         }
 
-        public async Task<IEnumerable<object>> GetAllAsync() => 
-            await _context.Avatars.OrderBy(a => a.Id).Select(a => new { a.Id, a.StoryId, a.AvatarUrl }).ToListAsync();
+        public async Task<IEnumerable<object>> GetAllAsync()
+        {
+            return await _context.Avatars
+                .OrderBy(a => a.Id)
+                .Select(a => new { a.Id, a.StoryId, a.AvatarUrl })
+                .ToListAsync();
+        }
 
-        public async Task<object?> GetByIdAsync(Guid id) => 
-            await _context.Avatars.Where(a => a.Id == id).Select(a => new { a.Id, a.StoryId, a.AvatarUrl }).FirstOrDefaultAsync();
+        public async Task<object?> GetByIdAsync(Guid id)
+        {
+            return await _context.Avatars
+                .Where(a => a.Id == id)
+                .Select(a => new { a.Id, a.StoryId, a.AvatarUrl })
+                .FirstOrDefaultAsync();
+        }
 
-        public async Task<string> CreateAsync(IFormFile avatarImage, Guid? storyId)
+        public async Task<string> CreateAsync(IFormFile avatarImage, Guid storyId)
         {
             if (avatarImage == null || avatarImage.Length == 0)
-                throw new ArgumentException("Archivo vacío.");
+                throw new ArgumentException("No se seleccionó una imagen o el archivo está vacío.");
 
-            var avatarId = Guid.NewGuid();
+            var imageUrl = await UploadToCloudinary(avatarImage);
 
-            // El servicio central se encarga de todo el flujo del NAS
-            string folderPath = $"/CORREPALABRASAPPDEV/img/avatars";
-            string fileExtension = Path.GetExtension(avatarImage.FileName);
-            string fileName = $"{avatarId}_avatar{fileExtension}";
-            var imageUrl = await _synologyService.UploadAndShareAsync(avatarImage, folderPath, fileName);
+            var newAvatar = new Avatar
+            {
+                Id = Guid.NewGuid(),
+                StoryId = storyId,
+                AvatarUrl = imageUrl
+            };
 
-            var newAvatar = new Avatar { Id = avatarId, StoryId = storyId, AvatarUrl = imageUrl };
             _context.Avatars.Add(newAvatar);
             await _context.SaveChangesAsync();
             return "Avatar creado correctamente.";
         }
 
-        public async Task<string> UpdateAsync(Guid id, IFormFile? avatarImage, Guid? storyId)
+        public async Task<string> UpdateAsync(Guid id, IFormFile? avatarImage, Guid storyId)
         {
             var avatar = await _context.Avatars.FindAsync(id);
             if (avatar == null) throw new KeyNotFoundException("Avatar no encontrado.");
 
             if (avatarImage != null && avatarImage.Length > 0)
             {
-                // Eliminamos la imagen previa en el NAS pasándole su URL guardada
-                string folderPath = $"/CORREPALABRASAPPDEV/img/avatars";
-                await _synologyService.DeleteBySharingUrlAsync(avatar.AvatarUrl);
-                string fileExtension = Path.GetExtension(avatarImage.FileName);
-                string fileName = $"{id}_avatar{fileExtension}";
-                // Subimos la nueva
-                avatar.AvatarUrl = await _synologyService.UploadAndShareAsync(avatarImage, folderPath, fileName);
+                avatar.AvatarUrl = await UploadToCloudinary(avatarImage);
             }
 
             avatar.StoryId = storyId;
@@ -72,11 +83,38 @@ namespace CorrePalabras.Services
             var avatar = await _context.Avatars.FindAsync(id);
             if (avatar == null) throw new KeyNotFoundException("Avatar no encontrado.");
 
-            await _synologyService.DeleteBySharingUrlAsync(avatar.AvatarUrl);
+            if (!string.IsNullOrEmpty(avatar.AvatarUrl))
+            {
+                await DeleteFromCloudinary(avatar.AvatarUrl);
+            }
 
             _context.Avatars.Remove(avatar);
             await _context.SaveChangesAsync();
             return "Avatar eliminado correctamente.";
+        }
+
+        private async Task<string> UploadToCloudinary(IFormFile file)
+        {
+            using var stream = file.OpenReadStream();
+            var uploadParams = new ImageUploadParams
+            {
+                File = new FileDescription(file.FileName, stream),
+                Folder = "corre_palabras_avatars"
+            };
+            var result = await _cloudinary.UploadAsync(uploadParams);
+            if (result.Error != null) throw new Exception(result.Error.Message);
+            return result.SecureUrl.ToString();
+        }
+
+        private async Task DeleteFromCloudinary(string url)
+        {
+            var uri = new Uri(url);
+            var publicId = string.Join("/", uri.AbsolutePath.Split('/').Skip(5));
+            var dotIndex = publicId.IndexOf('.');
+            if (dotIndex >= 0) publicId = publicId.Substring(0, dotIndex);
+
+            var result = await _cloudinary.DestroyAsync(new DeletionParams(publicId));
+            if (result.Error != null) throw new Exception("No se pudo eliminar la imagen de Cloudinary.");
         }
     }
 }
