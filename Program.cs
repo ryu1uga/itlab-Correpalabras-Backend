@@ -98,7 +98,7 @@ builder.Services.AddAuthorization();
 
 // Email e Infraestructura
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
-builder.Services.AddTransient<EmailService>();
+builder.Services.AddScoped<IEmailService, EmailService>();
 
 // Servicio de JWT (Crucial para Login)
 builder.Services.AddScoped<IJwtService, JwtService>();
