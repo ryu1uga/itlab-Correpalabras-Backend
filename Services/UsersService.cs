@@ -17,7 +17,7 @@ namespace CorrePalabras.Services
         private readonly IEmailService _emailService;
         private readonly IJwtService _jwtService;
 
-        public UsersService(ApplicationDbContext context, EmailService emailService, IJwtService jwtService)
+        public UsersService(ApplicationDbContext context, IEmailService emailService, IJwtService jwtService)
         {
             _context = context;
             _emailService = emailService;
