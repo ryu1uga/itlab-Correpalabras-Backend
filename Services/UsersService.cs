@@ -79,7 +79,7 @@ namespace CorrePalabras.Services
             var user = new User {
                 Id = Guid.NewGuid(), Name = dto.Name, Email = dto.Email,
                 Password = BCrypt.Net.BCrypt.HashPassword(dto.Password),
-                UpdatedAt = DateTime.UtcNow, UserType = 0
+                UpdatedAt = DateTime.UtcNow, UserType = 1
             };
 
             _context.Users.Add(user);

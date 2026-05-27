@@ -1,10 +1,13 @@
 using System.Net;
 using System.Net.Mail;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
+using CorrePalabras.Models.Common;
+using CorrePalabras.Services.Interfaces;
 
 namespace CorrePalabras.Services
 {
-    public class EmailService
+    public class EmailService : IEmailService
     {
         private readonly EmailSettings _emailSettings;
 
@@ -15,6 +18,7 @@ namespace CorrePalabras.Services
 
         public async Task SendEmailAsync(string toEmail, string subject, string body)
         {
+            // Usamos la configuración SMTP de forma segura
             using var client = new SmtpClient(_emailSettings.SmtpServer, _emailSettings.Port)
             {
                 Credentials = new NetworkCredential(_emailSettings.Username, _emailSettings.Password),

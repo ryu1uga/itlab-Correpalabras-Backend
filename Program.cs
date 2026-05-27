@@ -60,56 +60,42 @@ builder.Services.AddSwaggerGen(c =>
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 if (string.IsNullOrWhiteSpace(connectionString))
 {
-    builder.Logging.AddConsole();
-    // CORRECCIÓN: Usar LoggerFactory para crear el logger
-    using var loggerFactory = LoggerFactory.Create(logging => logging.AddConsole());
-    var tempLogger = loggerFactory.CreateLogger("Startup");
-    
-    tempLogger.LogWarning("ConnectionStrings__DefaultConnection no definida. Configure la variable en OpenShift (ConnectionStrings__DefaultConnection).");
+    throw new InvalidOperationException("CRÍTICO: 'ConnectionStrings__DefaultConnection' no está definida. La aplicación no puede iniciar sin base de datos.");
 }
-else
-{
-    builder.Services.AddDbContext<ApplicationDbContext>(options =>
-        options.UseNpgsql(connectionString));
-}
+
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseNpgsql(connectionString));
 
 // 4. Configuración de Autenticación JWT
 var jwtKey = builder.Configuration["JWT_KEY"];
 var jwtIssuer = builder.Configuration["JWT_ISSUER"];
 var jwtAudience = builder.Configuration["JWT_AUDIENCE"];
 
-if (!string.IsNullOrEmpty(jwtKey) && !string.IsNullOrEmpty(jwtIssuer) && !string.IsNullOrEmpty(jwtAudience))
+if (string.IsNullOrEmpty(jwtKey) || string.IsNullOrEmpty(jwtIssuer) || string.IsNullOrEmpty(jwtAudience))
 {
-    builder.Services.AddAuthentication(options => {
-        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-    })
-    .AddJwtBearer(options =>
-    {
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ValidIssuer = jwtIssuer,
-            ValidAudience = jwtAudience,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
-        };
-    });
+    throw new InvalidOperationException("CRÍTICO: Las variables JWT (JWT_KEY, JWT_ISSUER, JWT_AUDIENCE) son obligatorias para el funcionamiento del sistema.");
+}
 
-    // 4.1. Configuración de Autorización (NECESARIO para [Authorize])
-    builder.Services.AddAuthorization();
-}
-else
+builder.Services.AddAuthentication(options => {
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
 {
-    // CORRECCIÓN: Usar LoggerFactory para crear el logger
-    using var loggerFactory = LoggerFactory.Create(logging => logging.AddConsole());
-    var tempLogger = loggerFactory.CreateLogger("Startup");
-    
-    tempLogger.LogWarning("Variables JWT incompletas (JWT_KEY/JWT_ISSUER/JWT_AUDIENCE). Autenticación JWT no configurada.");
-    builder.Services.AddAuthorization();
-}
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = jwtIssuer,
+        ValidAudience = jwtAudience,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+    };
+});
+
+builder.Services.AddAuthorization();
+
 // Email e Infraestructura
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
 builder.Services.AddTransient<EmailService>();
