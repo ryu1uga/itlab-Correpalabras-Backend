@@ -121,7 +121,10 @@ builder.Services.AddScoped<IUnlockedBadgesService, UnlockedBadgesService>();
 builder.Services.AddScoped<IUsersService, UsersService>();
 builder.Services.AddScoped<IHealthCheckService, HealthCheckService>();
 
-builder.Services.AddHttpClient<ISynologyService, SynologyService>();
+builder.Services.AddHttpClient<ISynologyService, SynologyService>()(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
 
 // Configuración de CORS - Restringida según ambiente
 var allowedOrigins = Environment.GetEnvironmentVariable("ALLOWED_ORIGINS")?.Split(",") ?? new[] { "http://localhost:3000" };

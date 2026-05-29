@@ -41,7 +41,7 @@ namespace CorrePalabras.Services
             if (response != null && response.Success && response.Data != null)
             {
                 _cachedSid = response.Data.Sid;
-                _sidExpiration = DateTime.UtcNow.AddDays(1);
+                _sidExpiration = DateTime.UtcNow.AddDays(6);
                 return _cachedSid;
             }
 
