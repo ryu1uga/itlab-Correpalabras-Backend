@@ -36,18 +36,19 @@ namespace CorrePalabras.Services
             string url = $"{_synologyBaseUrl}/webapi/auth.cgi?api=SYNO.API.Auth&version=6&method=login&account={Uri.EscapeDataString(_username)}&passwd={Uri.EscapeDataString(_password)}&session=FileStation&format=sid&enable_syno_token=yes";
 
             var rawResponse = await _httpClient.GetStringAsync(url);
+            Console.WriteLine($"=== AUTH BODY: {rawResponse} ===");  // 👈
+
             var response = System.Text.Json.JsonSerializer.Deserialize<SynologyLoginResponse>(rawResponse);
 
             if (response != null && response.Success && response.Data != null)
             {
                 _cachedSid = response.Data.Sid;
-                _sidExpiration = DateTime.UtcNow.AddDays(6);
+                _sidExpiration = DateTime.UtcNow.AddHours(6);
                 return _cachedSid;
             }
 
             throw new Exception("Error de autenticación global en Synology File Station.");
         }
-
         private async Task EnsureFolderHierarchyAsync(string fullFolderPath, string sid)
         {
             // Probar ambos prefijos
