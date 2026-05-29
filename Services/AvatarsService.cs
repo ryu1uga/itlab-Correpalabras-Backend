@@ -1,150 +1,82 @@
+using CorrePalabras.Data;
+using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using System;
-using System.IO;
+using System.Collections.Generic;
 using System.Linq;
-using System.Net.Http;
-using System.Net.Http.Json;
-using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
 namespace CorrePalabras.Services
 {
-    public class SynologyService : ISynologyService
+    public class AvatarsService : IAvatarsService
     {
-        private readonly HttpClient _httpClient;
-        private readonly string _synologyBaseUrl;
-        private readonly string _username;
-        private readonly string _password;
+        private readonly ApplicationDbContext _context;
+        private readonly ISynologyService _synologyService;
 
-        private string? _cachedSid;
-        private DateTime _sidExpiration = DateTime.MinValue;
-
-        public SynologyService(HttpClient httpClient)
+        public AvatarsService(ApplicationDbContext context, ISynologyService synologyService)
         {
-            _httpClient = httpClient;
-            _synologyBaseUrl = Environment.GetEnvironmentVariable("SYNOLOGY_BASE_URL") ?? "http://localhost:5000";
-            _username = Environment.GetEnvironmentVariable("SYNOLOGY_USERNAME") ?? "";
-            _password = Environment.GetEnvironmentVariable("SYNOLOGY_PASSWORD") ?? "";
+            _context = context;
+            _synologyService = synologyService;
         }
 
-        private async Task<string> GetSidAsync()
+        public async Task<IEnumerable<object>> GetAllAsync() => 
+            await _context.Avatars.OrderBy(a => a.Id).Select(a => new { a.Id, a.StoryId, a.AvatarUrl }).ToListAsync();
+
+        public async Task<object?> GetByIdAsync(Guid id) => 
+            await _context.Avatars.Where(a => a.Id == id).Select(a => new { a.Id, a.StoryId, a.AvatarUrl }).FirstOrDefaultAsync();
+
+        public async Task<string> CreateAsync(IFormFile avatarImage, Guid? storyId)
         {
-            if (!string.IsNullOrEmpty(_cachedSid) && DateTime.UtcNow < _sidExpiration)
-                return _cachedSid;
+            if (avatarImage == null || avatarImage.Length == 0)
+                throw new ArgumentException("Archivo vacío.");
 
-            string url = $"{_synologyBaseUrl}/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login&account={Uri.EscapeDataString(_username)}&passwd={Uri.EscapeDataString(_password)}&session=FileStation&format=sid";
+            var avatarId = Guid.NewGuid();
 
-            var rawResponse = await _httpClient.GetStringAsync(url);
-            var response = System.Text.Json.JsonSerializer.Deserialize<SynologyLoginResponse>(rawResponse);
+            // El servicio central se encarga de todo el flujo del NAS
+            string folderPath = $"/CPAPPDEV/img/avatars";
+            string fileExtension = Path.GetExtension(avatarImage.FileName);
+            string fileName = $"{avatarId}_avatar{fileExtension}";
+            var imageUrl = await _synologyService.UploadAndShareAsync(avatarImage, folderPath, fileName);
 
-            if (response != null && response.Success && response.Data != null)
+            var newAvatar = new Avatar { Id = avatarId, StoryId = storyId, AvatarUrl = imageUrl };
+            _context.Avatars.Add(newAvatar);
+            await _context.SaveChangesAsync();
+            return "Avatar creado correctamente.";
+        }
+
+        public async Task<string> UpdateAsync(Guid id, IFormFile? avatarImage, Guid? storyId)
+        {
+            var avatar = await _context.Avatars.FindAsync(id);
+            if (avatar == null) throw new KeyNotFoundException("Avatar no encontrado.");
+
+            if (avatarImage != null && avatarImage.Length > 0)
             {
-                _cachedSid = response.Data.Sid;
-                _sidExpiration = DateTime.UtcNow.AddDays(1);
-                return _cachedSid;
+                // Eliminamos la imagen previa en el NAS pasándole su URL guardada
+                string folderPath = $"/CPAPPDEV/img/avatars";
+                await _synologyService.DeleteBySharingUrlAsync(avatar.AvatarUrl);
+                string fileExtension = Path.GetExtension(avatarImage.FileName);
+                string fileName = $"{id}_avatar{fileExtension}";
+                // Subimos la nueva
+                avatar.AvatarUrl = await _synologyService.UploadAndShareAsync(avatarImage, folderPath, fileName);
             }
 
-            throw new Exception("Error de autenticación global en Synology File Station.");
+            avatar.StoryId = storyId;
+            await _context.SaveChangesAsync();
+            return "Valores actualizados correctamente.";
         }
 
-        private async Task EnsureFolderHierarchyAsync(string fullFolderPath, string sid)
+        public async Task<string> DeleteAsync(Guid id)
         {
-            // Crea cada nivel de la jerarquía: /CPAPPDEV, /CPAPPDEV/img, /CPAPPDEV/img/stories, /CPAPPDEV/img/stories/{id}
-            var parts = fullFolderPath.Trim('/').Split('/');
-            string accumulated = "";
+            var avatar = await _context.Avatars.FindAsync(id);
+            if (avatar == null) throw new KeyNotFoundException("Avatar no encontrado.");
 
-            foreach (var part in parts)
-            {
-                string parentPath = string.IsNullOrEmpty(accumulated) ? "/" : accumulated;
-                accumulated += "/" + part;
+            await _synologyService.DeleteBySharingUrlAsync(avatar.AvatarUrl);
 
-                string url = $"{_synologyBaseUrl}/webapi/entry.cgi";
-                using var content = new MultipartFormDataContent();
-                content.Add(new StringContent("SYNO.FileStation.CreateFolder"), "api");
-                content.Add(new StringContent("2"), "version");
-                content.Add(new StringContent("create"), "method");
-                content.Add(new StringContent(parentPath), "folder_path");
-                content.Add(new StringContent(part), "name");
-                content.Add(new StringContent("true"), "force_parent");
-                content.Add(new StringContent(sid), "_sid");
-
-                var response = await _httpClient.PostAsync(url, content);
-                var raw = await response.Content.ReadAsStringAsync();
-                Console.WriteLine($"=== CREATE FOLDER [{accumulated}] (parent: {parentPath}) ===\n{raw}\n====================================");
-            }
+            _context.Avatars.Remove(avatar);
+            await _context.SaveChangesAsync();
+            return "Avatar eliminado correctamente.";
         }
-
-        public async Task<string> UploadAndShareAsync(IFormFile file, string destinationFolder, string fileName)
-        {
-            string sid = await GetSidAsync();
-
-            await EnsureFolderHierarchyAsync(destinationFolder, sid);
-
-            string url = $"{_synologyBaseUrl}/webapi/entry.cgi";
-            using var content = new MultipartFormDataContent("AaB03x");
-            content.Add(new StringContent("SYNO.FileStation.Upload"), "api");
-            content.Add(new StringContent("2"), "version");
-            content.Add(new StringContent("upload"), "method");
-            content.Add(new StringContent(destinationFolder), "path");
-            content.Add(new StringContent("true"), "create_parents");
-            content.Add(new StringContent("true"), "overwrite");
-            content.Add(new StringContent(sid), "_sid");
-
-            using var stream = file.OpenReadStream();
-            var streamContent = new StreamContent(stream);
-            streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(file.ContentType ?? "application/octet-stream");
-            content.Add(streamContent, "file", fileName);
-
-            var response = await _httpClient.PostAsync(url, content);
-            var rawBody = await response.Content.ReadAsStringAsync();
-            Console.WriteLine($"=== SYNOLOGY UPLOAD RESPONSE ===\nStatus: {response.StatusCode}\nFolder: {destinationFolder}\nBody: {rawBody}\n================================");
-
-            var result = System.Text.Json.JsonSerializer.Deserialize<SynologyBaseResponse>(rawBody);
-            if (result == null || !result.Success)
-                throw new Exception($"Error al subir archivo a Synology. Code: {result?.Error?.Code}");
-
-            return await GenerateSharingLinkAsync($"{destinationFolder}/{fileName}", sid);
-        }
-
-        public async Task DeleteBySharingUrlAsync(string sharingUrl)
-        {
-            if (string.IsNullOrEmpty(sharingUrl)) return;
-
-            string sid = await GetSidAsync();
-            string listUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=list&_sid={sid}";
-            var listResponse = await _httpClient.GetFromJsonAsync<SynologySharingResponse>(listUrl);
-
-            if (listResponse != null && listResponse.Success && listResponse.Data?.Links != null)
-            {
-                var matchedLink = listResponse.Data.Links.FirstOrDefault(l => l.Url == sharingUrl);
-                if (matchedLink != null)
-                {
-                    string deleteFileUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Delete&version=2&method=delete&path=%5B%22{Uri.EscapeDataString(matchedLink.Path)}%22%5D&recursive=true&_sid={sid}";
-                    await _httpClient.GetFromJsonAsync<SynologyBaseResponse>(deleteFileUrl);
-
-                    string cleanLinkUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=delete&id=%5B%22{matchedLink.Id}%22%5D&_sid={sid}";
-                    await _httpClient.GetFromJsonAsync<SynologyBaseResponse>(cleanLinkUrl);
-                }
-            }
-        }
-
-        private async Task<string> GenerateSharingLinkAsync(string filePath, string sid)
-        {
-            string url = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=create&path=%22{Uri.EscapeDataString(filePath)}%22&_sid={sid}";
-            var response = await _httpClient.GetFromJsonAsync<SynologySharingResponse>(url);
-
-            if (response != null && response.Success && response.Data?.Links?.Length > 0)
-                return response.Data.Links[0].Url;
-
-            throw new Exception("No se pudo generar el enlace compartido en Synology.");
-        }
-
-        #region DTOs Internos
-        public class SynologyBaseResponse { [JsonPropertyName("success")] public bool Success { get; set; } [JsonPropertyName("error")] public SynologyError? Error { get; set; } }
-        public class SynologyError { [JsonPropertyName("code")] public int Code { get; set; } }
-        public class SynologyLoginResponse : SynologyBaseResponse { [JsonPropertyName("data")] public LoginData? Data { get; set; } public class LoginData { [JsonPropertyName("sid")] public string Sid { get; set; } = string.Empty; } }
-        public class SynologySharingResponse : SynologyBaseResponse { [JsonPropertyName("data")] public SharingData? Data { get; set; } public class SharingData { [JsonPropertyName("links")] public SharingLink[] Links { get; set; } = Array.Empty<SharingLink>(); } public class SharingLink { [JsonPropertyName("id")] public string Id { get; set; } = string.Empty; [JsonPropertyName("url")] public string Url { get; set; } = string.Empty; [JsonPropertyName("path")] public string Path { get; set; } = string.Empty; } }
-        #endregion
     }
 }
