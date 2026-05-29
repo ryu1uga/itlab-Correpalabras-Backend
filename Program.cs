@@ -121,7 +121,7 @@ builder.Services.AddScoped<IUnlockedBadgesService, UnlockedBadgesService>();
 builder.Services.AddScoped<IUsersService, UsersService>();
 builder.Services.AddScoped<IHealthCheckService, HealthCheckService>();
 
-builder.Services.AddHttpClient<ISynologyService, SynologyService>()(client =>
+builder.Services.AddHttpClient<ISynologyService, SynologyService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(30);
 });
