@@ -140,7 +140,7 @@ namespace CorrePalabras.Services
         public async Task<StoryDTO> CreateAsync(StoryDTO dto, IFormFile thumbnail)
         {
             var storyId = Guid.NewGuid();
-            string folderPath = $"/CORREPALABRASAPPDEV/img/stories/{storyId}";
+            string folderPath = $"/CPAPPDEV/img/stories/{storyId}";
             string fileExtension = Path.GetExtension(thumbnail.FileName);
             string fileName = $"{storyId}_thumbnail{fileExtension}";
             var imageUrl = await _synologyService.UploadAndShareAsync(thumbnail, folderPath, fileName);
@@ -165,7 +165,7 @@ namespace CorrePalabras.Services
 
             if (thumbnail != null && thumbnail.Length > 0)
             {
-                string folderPath = $"/CORREPALABRASAPPDEV/img/stories/{id}";
+                string folderPath = $"/CPAPPDEV/img/stories/{id}";
                 await _synologyService.DeleteBySharingUrlAsync(story.Thumbnail);
                 string fileExtension = Path.GetExtension(thumbnail.FileName);
                 string fileName = $"{id}_thumbnail{fileExtension}";

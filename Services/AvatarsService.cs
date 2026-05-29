@@ -35,7 +35,7 @@ namespace CorrePalabras.Services
             var avatarId = Guid.NewGuid();
 
             // El servicio central se encarga de todo el flujo del NAS
-            string folderPath = $"/CORREPALABRASAPPDEV/img/avatars";
+            string folderPath = $"/CPAPPDEV/img/avatars";
             string fileExtension = Path.GetExtension(avatarImage.FileName);
             string fileName = $"{avatarId}_avatar{fileExtension}";
             var imageUrl = await _synologyService.UploadAndShareAsync(avatarImage, folderPath, fileName);
@@ -54,7 +54,7 @@ namespace CorrePalabras.Services
             if (avatarImage != null && avatarImage.Length > 0)
             {
                 // Eliminamos la imagen previa en el NAS pasándole su URL guardada
-                string folderPath = $"/CORREPALABRASAPPDEV/img/avatars";
+                string folderPath = $"/CPAPPDEV/img/avatars";
                 await _synologyService.DeleteBySharingUrlAsync(avatar.AvatarUrl);
                 string fileExtension = Path.GetExtension(avatarImage.FileName);
                 string fileName = $"{id}_avatar{fileExtension}";

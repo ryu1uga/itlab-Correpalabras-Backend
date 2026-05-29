@@ -50,7 +50,7 @@ namespace CorrePalabras.Services
 
             if (imageFile != null && imageFile.Length > 0)
             {
-                string folderPath = $"/CORREPALABRASAPPDEV/img/stories/{pageDTO.StoryId}/pages";
+                string folderPath = $"/CPAPPDEV/img/stories/{pageDTO.StoryId}/pages";
                 string fileExtension = Path.GetExtension(imageFile.FileName);
                 string fileName = $"{pageDTO.StoryId}_page{pageDTO.PageOrder}{fileExtension}";
                 page.ImageUrl = await _synologyService.UploadAndShareAsync(imageFile, folderPath, fileName);
@@ -71,7 +71,7 @@ namespace CorrePalabras.Services
 
             if (imageFile != null && imageFile.Length > 0)
             {
-                string folderPath = $"/CORREPALABRASAPPDEV/img/stories/{pageDTO.StoryId}/pages";
+                string folderPath = $"/CPAPPDEV/img/stories/{pageDTO.StoryId}/pages";
                 await _synologyService.DeleteBySharingUrlAsync(page.ImageUrl);
                 string fileExtension = Path.GetExtension(imageFile.FileName);
                 string fileName = $"{pageDTO.StoryId}_page{pageDTO.PageOrder}{fileExtension}";
