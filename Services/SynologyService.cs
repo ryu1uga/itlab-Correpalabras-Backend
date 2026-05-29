@@ -50,25 +50,33 @@ namespace CorrePalabras.Services
 
         private async Task EnsureFolderHierarchyAsync(string fullFolderPath, string sid)
         {
-            // fullFolderPath = /CPAPPDEV/img/stories/{storyId}
-            // /CPAPPDEV/img/stories ya existe manualmente — solo crear el último nivel
-            var parts = fullFolderPath.Trim('/').Split('/');
-            string parentPath = "/" + string.Join("/", parts[..^1]); // /CPAPPDEV/img/stories
-            string folderName = parts[^1];                           // {storyId}
+            // Probar ambos prefijos
+            var pathsToTry = new[]
+            {
+                fullFolderPath,                                          // /CPAPPDEV/img/stories/{id}
+                "/team-folders" + fullFolderPath                        // /team-folders/CPAPPDEV/img/stories/{id}
+            };
 
-            string url = $"{_synologyBaseUrl}/webapi/entry.cgi";
-            using var content = new MultipartFormDataContent();
-            content.Add(new StringContent("SYNO.FileStation.CreateFolder"), "api");
-            content.Add(new StringContent("2"), "version");
-            content.Add(new StringContent("create"), "method");
-            content.Add(new StringContent(parentPath), "folder_path");
-            content.Add(new StringContent(folderName), "name");
-            content.Add(new StringContent("true"), "force_parent");
-            content.Add(new StringContent(sid), "_sid");
+            foreach (var path in pathsToTry)
+            {
+                var parts = path.Trim('/').Split('/');
+                string parentPath = "/" + string.Join("/", parts[..^1]);
+                string folderName = parts[^1];
 
-            var response = await _httpClient.PostAsync(url, content);
-            var raw = await response.Content.ReadAsStringAsync();
-            Console.WriteLine($"=== CREATE FOLDER [{fullFolderPath}] === RESULT: {raw}");
+                string url = $"{_synologyBaseUrl}/webapi/entry.cgi";
+                using var content = new MultipartFormDataContent();
+                content.Add(new StringContent("SYNO.FileStation.CreateFolder"), "api");
+                content.Add(new StringContent("2"), "version");
+                content.Add(new StringContent("create"), "method");
+                content.Add(new StringContent(parentPath), "folder_path");
+                content.Add(new StringContent(folderName), "name");
+                content.Add(new StringContent("true"), "force_parent");
+                content.Add(new StringContent(sid), "_sid");
+
+                var response = await _httpClient.PostAsync(url, content);
+                var raw = await response.Content.ReadAsStringAsync();
+                Console.WriteLine($"=== CREATE FOLDER === path: [{path}] | parent: [{parentPath}] | name: [{folderName}] | result: {raw}");
+            }
         }
 
         public async Task<string> UploadAndShareAsync(IFormFile file, string destinationFolder, string fileName)
