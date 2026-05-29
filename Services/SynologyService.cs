@@ -35,7 +35,7 @@
 
                 string url = $"{_synologyBaseUrl}/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login&account={Uri.EscapeDataString(_username)}&passwd={Uri.EscapeDataString(_password)}&session=FileStation&format=sid";
 
-                // 👇 AGREGA ESTO
+                // LOG TEMPORAL
                 var rawResponse = await _httpClient.GetStringAsync(url);
                 Console.WriteLine($"=== SYNOLOGY AUTH RESPONSE ===");
                 Console.WriteLine($"URL: {url}");
@@ -43,7 +43,15 @@
                 Console.WriteLine($"==============================");
 
                 var response = System.Text.Json.JsonSerializer.Deserialize<SynologyLoginResponse>(rawResponse);
-                // ...
+
+                if (response != null && response.Success && response.Data != null)
+                {
+                    _cachedSid = response.Data.Sid;
+                    _sidExpiration = DateTime.UtcNow.AddDays(1);
+                    return _cachedSid;
+                }
+
+                throw new Exception("Error de autenticación global en Synology File Station.");
             }
 
             public async Task<string> UploadAndShareAsync(IFormFile file, string destinationFolder, string fileName)
