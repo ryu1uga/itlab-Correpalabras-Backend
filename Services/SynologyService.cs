@@ -50,29 +50,25 @@ namespace CorrePalabras.Services
 
         private async Task EnsureFolderHierarchyAsync(string fullFolderPath, string sid)
         {
-            // Crea cada nivel de la jerarquía: /CPAPPDEV, /CPAPPDEV/img, /CPAPPDEV/img/stories, /CPAPPDEV/img/stories/{id}
+            // fullFolderPath = /CPAPPDEV/img/stories/{storyId}
+            // /CPAPPDEV/img/stories ya existe manualmente — solo crear el último nivel
             var parts = fullFolderPath.Trim('/').Split('/');
-            string accumulated = "";
+            string parentPath = "/" + string.Join("/", parts[..^1]); // /CPAPPDEV/img/stories
+            string folderName = parts[^1];                           // {storyId}
 
-            foreach (var part in parts)
-            {
-                string parentPath = string.IsNullOrEmpty(accumulated) ? "/" : accumulated;
-                accumulated += "/" + part;
+            string url = $"{_synologyBaseUrl}/webapi/entry.cgi";
+            using var content = new MultipartFormDataContent();
+            content.Add(new StringContent("SYNO.FileStation.CreateFolder"), "api");
+            content.Add(new StringContent("2"), "version");
+            content.Add(new StringContent("create"), "method");
+            content.Add(new StringContent(parentPath), "folder_path");
+            content.Add(new StringContent(folderName), "name");
+            content.Add(new StringContent("true"), "force_parent");
+            content.Add(new StringContent(sid), "_sid");
 
-                string url = $"{_synologyBaseUrl}/webapi/entry.cgi";
-                using var content = new MultipartFormDataContent();
-                content.Add(new StringContent("SYNO.FileStation.CreateFolder"), "api");
-                content.Add(new StringContent("2"), "version");
-                content.Add(new StringContent("create"), "method");
-                content.Add(new StringContent(parentPath), "folder_path");
-                content.Add(new StringContent(part), "name");
-                content.Add(new StringContent("true"), "force_parent");
-                content.Add(new StringContent(sid), "_sid");
-
-                var response = await _httpClient.PostAsync(url, content);
-                var raw = await response.Content.ReadAsStringAsync();
-                Console.WriteLine($"=== CREATE FOLDER [{accumulated}] (parent: {parentPath}) ===\n{raw}\n====================================");
-            }
+            var response = await _httpClient.PostAsync(url, content);
+            var raw = await response.Content.ReadAsStringAsync();
+            Console.WriteLine($"=== CREATE FOLDER [{fullFolderPath}] === RESULT: {raw}");
         }
 
         public async Task<string> UploadAndShareAsync(IFormFile file, string destinationFolder, string fileName)
