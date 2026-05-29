@@ -35,7 +35,7 @@ namespace CorrePalabras.Services
                 return _cachedSid;
             }
 
-            string url = $"{_synologyBaseUrl}/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login&account={Uri.EscapeDataString(_username)}&passwd={Uri.EscapeDataString(_password)}&session=DesktopApp&format=sid";
+            string url = $"{_synologyBaseUrl}/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login&account={Uri.EscapeDataString(_username)}&passwd={Uri.EscapeDataString(_password)}&session=FileStation&format=sid";
             
             var response = await _httpClient.GetFromJsonAsync<SynologyLoginResponse>(url);
             if (response != null && response.Success && response.Data != null)
