@@ -125,6 +125,33 @@ namespace CorrePalabras.Services
 
                 Console.WriteLine("=== CREATE_FOLDER USING JSON ===");
                 Console.WriteLine(body);
+
+                // 5. Intentar create_folder usando path
+                using (var req = new HttpRequestMessage(
+                        HttpMethod.Post,
+                        $"{_synologyBaseUrl}/webapi/entry.cgi"))
+                {
+                    AddAuthHeaders(req);
+
+                    req.Content = new StringContent(
+                        JsonSerializer.Serialize(new
+                        {
+                            api = "SYNO.SynologyDrive.Files",
+                            version = 6,
+                            method = "create_folder",
+                            path = "/team-folders/CPAPPDEV/img/stories",
+                            name = $"test-path-{Guid.NewGuid():N}"
+                        }),
+                        System.Text.Encoding.UTF8,
+                        "application/json");
+
+                    var resp = await _httpClient.SendAsync(req);
+
+                    var body = await resp.Content.ReadAsStringAsync();
+
+                    Console.WriteLine("=== CREATE_FOLDER USING PATH ===");
+                    Console.WriteLine(body);
+                }
             }
 
             // 5. API Info
@@ -144,6 +171,25 @@ namespace CorrePalabras.Services
 
                 Console.WriteLine("=== API INFO ===");
                 Console.WriteLine(body);
+
+                var allApisUrl =
+                    $"{_synologyBaseUrl}/webapi/query.cgi" +
+                    "?api=SYNO.API.Info" +
+                    "&version=1" +
+                    "&method=query" +
+                    "&query=all";
+
+                using (var req = new HttpRequestMessage(HttpMethod.Get, allApisUrl))
+                {
+                    AddAuthHeaders(req);
+
+                    var resp = await _httpClient.SendAsync(req);
+
+                    var body = await resp.Content.ReadAsStringAsync();
+
+                    Console.WriteLine("=== ALL APIS ===");
+                    Console.WriteLine(body);
+                }
             }
 
             Console.WriteLine("========================================");
