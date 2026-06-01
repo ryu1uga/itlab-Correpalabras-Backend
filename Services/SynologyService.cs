@@ -18,12 +18,11 @@ namespace CorrePalabras.Services
         private readonly string _username;
         private readonly string _password;
 
-        // file_id raíz del Team Folder CPAPPDEV (constante conocida)
-        private const string CpappdevFileId = "953441541020491937";
-        // file_id de /team-folders/CPAPPDEV/img/stories (constante conocida)
+        // file_id conocido de /team-folders/CPAPPDEV/img/stories
         private const string StoriesFileId = "953604116253293456";
 
         private string? _cachedSid;
+        private string? _cachedDid;
         private string? _cachedSynoToken;
         private DateTime _sidExpiration = DateTime.MinValue;
 
@@ -40,6 +39,7 @@ namespace CorrePalabras.Services
             if (!string.IsNullOrEmpty(_cachedSid) && DateTime.UtcNow < _sidExpiration)
                 return _cachedSid;
 
+            // Usamos format=cookie para que Synology acepte cookies en requests posteriores
             string url = $"{_synologyBaseUrl}/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login" +
                          $"&account={Uri.EscapeDataString(_username)}&passwd={Uri.EscapeDataString(_password)}" +
                          $"&session=FileStation&format=sid&enable_syno_token=yes";
@@ -52,6 +52,7 @@ namespace CorrePalabras.Services
             if (response != null && response.Success && response.Data != null)
             {
                 _cachedSid = response.Data.Sid;
+                _cachedDid = response.Data.Did;
                 _cachedSynoToken = response.Data.SynoToken;
                 _sidExpiration = DateTime.UtcNow.AddHours(6);
                 return _cachedSid;
@@ -60,14 +61,22 @@ namespace CorrePalabras.Services
             throw new Exception($"Error de autenticación Synology. Código: {response?.Error?.Code}. Raw: {rawResponse}");
         }
 
-        // Crea una carpeta usando file_id del parent. Devuelve el file_id de la carpeta creada/existente.
-        private async Task<string> CreateFolderByIdAsync(string parentFileId, string folderName, string sid)
+        // Agrega headers de autenticación: Cookie (did + id/sid) y X-SYNO-TOKEN
+        private void AddAuthHeaders(HttpRequestMessage req)
         {
-            // 1. Intentar crear la carpeta
-            string url = $"{_synologyBaseUrl}/webapi/entry.cgi";
-            using var req = new HttpRequestMessage(HttpMethod.Post, url);
+            if (!string.IsNullOrEmpty(_cachedDid) && !string.IsNullOrEmpty(_cachedSid))
+                req.Headers.Add("Cookie", $"did={_cachedDid}; id={_cachedSid}");
+
             if (!string.IsNullOrEmpty(_cachedSynoToken))
                 req.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
+        }
+
+        // Crea una carpeta usando file_id del parent con autenticación por cookies
+        private async Task<string> CreateFolderByIdAsync(string parentFileId, string folderName)
+        {
+            string url = $"{_synologyBaseUrl}/webapi/entry.cgi";
+            using var req = new HttpRequestMessage(HttpMethod.Post, url);
+            AddAuthHeaders(req);
 
             var body = new
             {
@@ -88,7 +97,6 @@ namespace CorrePalabras.Services
             var raw = await resp.Content.ReadAsStringAsync();
             Console.WriteLine($"=== CREATE FOLDER BY ID === parent_id: [{parentFileId}] | name: [{folderName}] | result: {raw}");
 
-            // 2. Parsear file_id de la respuesta si tuvo éxito
             using var doc = JsonDocument.Parse(raw);
             if (doc.RootElement.TryGetProperty("success", out var success) && success.GetBoolean())
             {
@@ -97,21 +105,29 @@ namespace CorrePalabras.Services
                     return fid.GetString() ?? "";
             }
 
-            // 3. Si falló (posiblemente ya existe), buscar el file_id listando el parent
-            return await GetFileIdByNameAsync(parentFileId, folderName, sid);
+            // Si falló, puede ser que ya existe — buscarla por nombre
+            return await GetFileIdByNameAsync(parentFileId, folderName);
         }
 
-        // Busca el file_id de un item por nombre dentro de un parent (por file_id)
-        private async Task<string> GetFileIdByNameAsync(string parentFileId, string name, string sid)
+        // Lista el contenido de una carpeta por su path (Drive acepta path para list)
+        // y busca el file_id de un item por nombre
+        private async Task<string> GetFileIdByNameAsync(string parentFileId, string name)
         {
-            string url = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.SynologyDrive.Files&version=6&method=list&file_id={parentFileId}&_sid={sid}";
+            // Usamos path conocido según el parentFileId
+            string parentPath = parentFileId == StoriesFileId
+                ? "/team-folders/CPAPPDEV/img/stories"
+                : "/team-folders/CPAPPDEV";
+
+            string url = $"{_synologyBaseUrl}/webapi/entry.cgi" +
+                         $"?api=SYNO.SynologyDrive.Files&version=6&method=list" +
+                         $"&path={Uri.EscapeDataString(parentPath)}";
+
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
-            if (!string.IsNullOrEmpty(_cachedSynoToken))
-                req.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
+            AddAuthHeaders(req);
 
             var resp = await _httpClient.SendAsync(req);
             var raw = await resp.Content.ReadAsStringAsync();
-            Console.WriteLine($"=== LIST BY ID === parent_id: [{parentFileId}] | looking for: [{name}] | result: {raw.Substring(0, Math.Min(500, raw.Length))}... ===");
+            Console.WriteLine($"=== LIST FOR FILE_ID === path: [{parentPath}] | looking for: [{name}] | result: {raw.Substring(0, Math.Min(500, raw.Length))}... ===");
 
             using var doc = JsonDocument.Parse(raw);
             if (doc.RootElement.TryGetProperty("data", out var data) &&
@@ -125,15 +141,7 @@ namespace CorrePalabras.Services
                 }
             }
 
-            throw new Exception($"No se encontró la carpeta '{name}' en parent_id '{parentFileId}'");
-        }
-
-        // Crea la carpeta del story (guid) dentro de stories y devuelve su file_id
-        private async Task<string> EnsureStoryFolderAsync(string storyGuid, string sid)
-        {
-            // img y stories ya existen con file_ids conocidos.
-            // Solo necesitamos crear la carpeta del guid dentro de stories.
-            return await CreateFolderByIdAsync(StoriesFileId, storyGuid, sid);
+            throw new Exception($"No se encontró '{name}' en '{parentPath}'");
         }
 
         public async Task<string> UploadAndShareAsync(IFormFile file, string destinationFolder, string fileName)
@@ -141,26 +149,25 @@ namespace CorrePalabras.Services
             string sid = await GetSidAsync();
 
             // destinationFolder = /CPAPPDEV/img/stories/{guid}
-            // Extraer el guid (último segmento)
             var storyGuid = destinationFolder.TrimEnd('/').Split('/').Last();
             Console.WriteLine($"=== STORY GUID: {storyGuid} ===");
 
-            // 1. Crear carpeta del story por file_id
-            var storyFolderFileId = await EnsureStoryFolderAsync(storyGuid, sid);
-            Console.WriteLine($"=== STORY FOLDER FILE ID: {storyFolderFileId} ===");
+            // 1. Crear carpeta del story dentro de stories (por file_id)
+            var storyFolderFileId = await CreateFolderByIdAsync(StoriesFileId, storyGuid);
+            Console.WriteLine($"=== STORY FOLDER FILE_ID: {storyFolderFileId} ===");
 
-            // 2. Subir archivo usando file_id de la carpeta destino
+            // 2. Subir archivo con cookies y file_id de la carpeta destino
             string uploadUrl = $"{_synologyBaseUrl}/webapi/entry.cgi";
             using var uploadReq = new HttpRequestMessage(HttpMethod.Post, uploadUrl);
-            if (!string.IsNullOrEmpty(_cachedSynoToken))
-                uploadReq.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
+            AddAuthHeaders(uploadReq);
 
             using var content = new MultipartFormDataContent("AaB03x");
             content.Add(new StringContent("SYNO.SynologyDrive.Files"), "api");
             content.Add(new StringContent("6"), "version");
             content.Add(new StringContent("upload"), "method");
-            content.Add(new StringContent(storyFolderFileId), "file_id"); // usar file_id en lugar de path
+            content.Add(new StringContent(storyFolderFileId), "file_id");
             content.Add(new StringContent("true"), "overwrite");
+            // También incluir _sid como fallback
             content.Add(new StringContent(sid), "_sid");
 
             using var stream = file.OpenReadStream();
@@ -178,7 +185,7 @@ namespace CorrePalabras.Services
             if (uploadResult == null || !uploadResult.Success)
                 throw new Exception($"Error al subir archivo a Synology Drive. Code: {uploadResult?.Error?.Code}");
 
-            // 3. Generar sharing link con FileStation usando el path original
+            // 3. Generar sharing link con FileStation
             return await GenerateSharingLinkAsync($"{destinationFolder}/{fileName}", sid);
         }
 
@@ -190,8 +197,7 @@ namespace CorrePalabras.Services
             string listUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=list&_sid={sid}";
 
             using var listRequest = new HttpRequestMessage(HttpMethod.Get, listUrl);
-            if (!string.IsNullOrEmpty(_cachedSynoToken))
-                listRequest.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
+            AddAuthHeaders(listRequest);
 
             var listHttpResponse = await _httpClient.SendAsync(listRequest);
             var listResponse = await listHttpResponse.Content.ReadFromJsonAsync<SynologySharingResponse>();
@@ -204,15 +210,13 @@ namespace CorrePalabras.Services
                     string deleteFileUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Delete&version=2&method=delete" +
                                            $"&path=%5B%22{Uri.EscapeDataString(matchedLink.Path)}%22%5D&recursive=true&_sid={sid}";
                     using var deleteFileRequest = new HttpRequestMessage(HttpMethod.Get, deleteFileUrl);
-                    if (!string.IsNullOrEmpty(_cachedSynoToken))
-                        deleteFileRequest.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
+                    AddAuthHeaders(deleteFileRequest);
                     await _httpClient.SendAsync(deleteFileRequest);
 
                     string cleanLinkUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=delete" +
                                           $"&id=%5B%22{matchedLink.Id}%22%5D&_sid={sid}";
                     using var cleanLinkRequest = new HttpRequestMessage(HttpMethod.Get, cleanLinkUrl);
-                    if (!string.IsNullOrEmpty(_cachedSynoToken))
-                        cleanLinkRequest.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
+                    AddAuthHeaders(cleanLinkRequest);
                     await _httpClient.SendAsync(cleanLinkRequest);
                 }
             }
@@ -223,11 +227,10 @@ namespace CorrePalabras.Services
             string url = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=create" +
                          $"&path=%22{Uri.EscapeDataString(filePath)}%22&_sid={sid}";
 
-            using var requestMessage = new HttpRequestMessage(HttpMethod.Get, url);
-            if (!string.IsNullOrEmpty(_cachedSynoToken))
-                requestMessage.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            AddAuthHeaders(req);
 
-            var httpResponse = await _httpClient.SendAsync(requestMessage);
+            var httpResponse = await _httpClient.SendAsync(req);
             var response = await httpResponse.Content.ReadFromJsonAsync<SynologySharingResponse>();
 
             if (response != null && response.Success && response.Data?.Links?.Length > 0)
@@ -255,6 +258,7 @@ namespace CorrePalabras.Services
             public class LoginData
             {
                 [JsonPropertyName("sid")] public string Sid { get; set; } = string.Empty;
+                [JsonPropertyName("did")] public string Did { get; set; } = string.Empty;
                 [JsonPropertyName("synotoken")] public string SynoToken { get; set; } = string.Empty;
             }
         }
