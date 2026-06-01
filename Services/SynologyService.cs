@@ -127,7 +127,28 @@ namespace CorrePalabras.Services
         private async Task<string> UploadViaDriveAsync(IFormFile file, string fileStationFolder, string fileName, string sid)
         {
             var driveFolderPath = ToDriverPath(fileStationFolder);
+            Console.WriteLine($"=== DRIVE PATH PARA UPLOAD: {driveFolderPath} ===");
 
+            // Test: FileStation Upload con path de Drive
+            string urlTest = $"{_synologyBaseUrl}/webapi/entry.cgi";
+            using var reqTest = new HttpRequestMessage(HttpMethod.Post, urlTest);
+            if (!string.IsNullOrEmpty(_cachedSynoToken)) reqTest.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
+            using var contentTest = new MultipartFormDataContent("AaB03x");
+            contentTest.Add(new StringContent("SYNO.FileStation.Upload"), "api");
+            contentTest.Add(new StringContent("2"), "version");
+            contentTest.Add(new StringContent("upload"), "method");
+            contentTest.Add(new StringContent(driveFolderPath), "path");
+            contentTest.Add(new StringContent("true"), "create_parents");
+            contentTest.Add(new StringContent("true"), "overwrite");
+            contentTest.Add(new StringContent(sid), "_sid");
+            var dummyBytes = new ByteArrayContent(System.Text.Encoding.UTF8.GetBytes("test"));
+            dummyBytes.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/plain");
+            contentTest.Add(dummyBytes, "file", "test.txt");
+            reqTest.Content = contentTest;
+            var respTest = await _httpClient.SendAsync(reqTest);
+            Console.WriteLine($"=== FILESTATION UPLOAD CON DRIVE PATH: {await respTest.Content.ReadAsStringAsync()} ===");
+
+            // Upload real con Drive API
             string url = $"{_synologyBaseUrl}/webapi/entry.cgi";
             using var req = new HttpRequestMessage(HttpMethod.Post, url);
             if (!string.IsNullOrEmpty(_cachedSynoToken))
@@ -146,7 +167,6 @@ namespace CorrePalabras.Services
             streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
                 file.ContentType ?? "application/octet-stream");
             content.Add(streamContent, "file", fileName);
-
             req.Content = content;
 
             var response = await _httpClient.SendAsync(req);
@@ -157,7 +177,6 @@ namespace CorrePalabras.Services
             if (result == null || !result.Success)
                 throw new Exception($"Error al subir archivo a Synology Drive. Code: {result?.Error?.Code}");
 
-            // Retorna el path de FileStation para el sharing link
             return $"{fileStationFolder}/{fileName}";
         }
 
