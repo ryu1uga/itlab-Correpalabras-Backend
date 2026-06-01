@@ -129,6 +129,20 @@ namespace CorrePalabras.Services
             var driveFolderPath = ToDriverPath(fileStationFolder);
             Console.WriteLine($"=== DRIVE PATH PARA UPLOAD: {driveFolderPath} ===");
 
+            // 👇 TEMPORAL: obtener file_id de /team-folders/CPAPPDEV/img/stories
+            var listStoriesUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.SynologyDrive.Files&version=6&method=list&path={Uri.EscapeDataString("/team-folders/CPAPPDEV/img/stories")}&_sid={sid}";
+            using var listStoriesReq = new HttpRequestMessage(HttpMethod.Get, listStoriesUrl);
+            if (!string.IsNullOrEmpty(_cachedSynoToken)) listStoriesReq.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
+            var listStoriesResp = await _httpClient.SendAsync(listStoriesReq);
+            Console.WriteLine($"=== STORIES FOLDER CONTENT: {await listStoriesResp.Content.ReadAsStringAsync()} ===");
+
+            // 👇 TEMPORAL: obtener file_id de stories misma carpeta
+            var getStoriesUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.SynologyDrive.Files&version=6&method=get&path={Uri.EscapeDataString("/team-folders/CPAPPDEV/img/stories")}&_sid={sid}";
+            using var getStoriesReq = new HttpRequestMessage(HttpMethod.Get, getStoriesUrl);
+            if (!string.IsNullOrEmpty(_cachedSynoToken)) getStoriesReq.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
+            var getStoriesResp = await _httpClient.SendAsync(getStoriesReq);
+            Console.WriteLine($"=== STORIES FOLDER INFO: {await getStoriesResp.Content.ReadAsStringAsync()} ===");
+
             // Test: FileStation Upload con path de Drive
             string urlTest = $"{_synologyBaseUrl}/webapi/entry.cgi";
             using var reqTest = new HttpRequestMessage(HttpMethod.Post, urlTest);
