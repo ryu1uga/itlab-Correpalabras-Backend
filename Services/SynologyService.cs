@@ -115,7 +115,7 @@ namespace CorrePalabras.Services
             // Base seguro = primeros 3 partes = /team-folders/CPAPPDEV
             int baseDepth = 3; // índices 0,1,2 = "", "team-folders", "CPAPPDEV"
 
-            for (int i = baseDepth + 1; i <= parts.Length - 1; i++)
+            for (int i = baseDepth + 1; i <= parts.Length; i++)
             {
                 var folderToCreate = string.Join("/", parts[..i]);
                 if (!folderToCreate.StartsWith("/")) folderToCreate = "/" + folderToCreate;
