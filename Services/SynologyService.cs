@@ -33,6 +33,122 @@ namespace CorrePalabras.Services
             _password = Environment.GetEnvironmentVariable("SYNOLOGY_PASSWORD") ?? "";
         }
 
+        private async Task DebugDriveApis()
+        {
+            Console.WriteLine("========================================");
+            Console.WriteLine("DEBUG DRIVE API");
+            Console.WriteLine("========================================");
+
+            // 1. Listar por path
+            var listByPathUrl =
+                $"{_synologyBaseUrl}/webapi/entry.cgi" +
+                "?api=SYNO.SynologyDrive.Files" +
+                "&version=6" +
+                "&method=list" +
+                "&path=%2Fteam-folders%2FCPAPPDEV%2Fimg%2Fstories";
+
+            using (var req = new HttpRequestMessage(HttpMethod.Get, listByPathUrl))
+            {
+                AddAuthHeaders(req);
+
+                var resp = await _httpClient.SendAsync(req);
+                var body = await resp.Content.ReadAsStringAsync();
+
+                Console.WriteLine("=== LIST BY PATH ===");
+                Console.WriteLine(body);
+            }
+
+            // 2. Listar por file_id
+            var listByFileIdUrl =
+                $"{_synologyBaseUrl}/webapi/entry.cgi" +
+                "?api=SYNO.SynologyDrive.Files" +
+                "&version=6" +
+                "&method=list" +
+                $"&file_id={StoriesFileId}";
+
+            using (var req = new HttpRequestMessage(HttpMethod.Get, listByFileIdUrl))
+            {
+                AddAuthHeaders(req);
+
+                var resp = await _httpClient.SendAsync(req);
+                var body = await resp.Content.ReadAsStringAsync();
+
+                Console.WriteLine("=== LIST BY FILE_ID ===");
+                Console.WriteLine(body);
+            }
+
+            // 3. Intentar create_folder usando FormUrlEncoded
+            using (var req = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    $"{_synologyBaseUrl}/webapi/entry.cgi"))
+            {
+                AddAuthHeaders(req);
+
+                req.Content = new FormUrlEncodedContent(
+                    new Dictionary<string, string>
+                    {
+                        ["api"] = "SYNO.SynologyDrive.Files",
+                        ["version"] = "6",
+                        ["method"] = "create_folder",
+                        ["file_id"] = StoriesFileId,
+                        ["name"] = $"test-{Guid.NewGuid():N}"
+                    });
+
+                var resp = await _httpClient.SendAsync(req);
+                var body = await resp.Content.ReadAsStringAsync();
+
+                Console.WriteLine("=== CREATE_FOLDER USING FILE_ID ===");
+                Console.WriteLine(body);
+            }
+
+            // 4. Intentar create_folder usando JSON
+            using (var req = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    $"{_synologyBaseUrl}/webapi/entry.cgi"))
+            {
+                AddAuthHeaders(req);
+
+                req.Content = new StringContent(
+                    JsonSerializer.Serialize(new
+                    {
+                        api = "SYNO.SynologyDrive.Files",
+                        version = 6,
+                        method = "create_folder",
+                        file_id = StoriesFileId,
+                        name = $"testjson-{Guid.NewGuid():N}"
+                    }),
+                    System.Text.Encoding.UTF8,
+                    "application/json");
+
+                var resp = await _httpClient.SendAsync(req);
+                var body = await resp.Content.ReadAsStringAsync();
+
+                Console.WriteLine("=== CREATE_FOLDER USING JSON ===");
+                Console.WriteLine(body);
+            }
+
+            // 5. API Info
+            var apiInfoUrl =
+                $"{_synologyBaseUrl}/webapi/query.cgi" +
+                "?api=SYNO.API.Info" +
+                "&version=1" +
+                "&method=query" +
+                "&query=SYNO.SynologyDrive.Files";
+
+            using (var req = new HttpRequestMessage(HttpMethod.Get, apiInfoUrl))
+            {
+                AddAuthHeaders(req);
+
+                var resp = await _httpClient.SendAsync(req);
+                var body = await resp.Content.ReadAsStringAsync();
+
+                Console.WriteLine("=== API INFO ===");
+                Console.WriteLine(body);
+            }
+
+            Console.WriteLine("========================================");
+        }
+
         private async Task<string> GetSidAsync()
         {
             if (!string.IsNullOrEmpty(_cachedSid) && DateTime.UtcNow < _sidExpiration)
@@ -182,6 +298,10 @@ namespace CorrePalabras.Services
         public async Task<string> UploadAndShareAsync(IFormFile file, string destinationFolder, string fileName)
         {
             string sid = await GetSidAsync();
+
+            await DebugDriveApis();
+
+            throw new Exception("Debug terminado");
 
             // destinationFolder = /CPAPPDEV/img/stories/{guid}
             var storyGuid = destinationFolder.TrimEnd('/').Split('/').Last();
