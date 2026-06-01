@@ -95,7 +95,11 @@ namespace CorrePalabras.Services
             var apiInfoUrl = $"{_synologyBaseUrl}/webapi/query.cgi?api=SYNO.API.Info&version=1&method=query&query=all";
             using var infoReq = new HttpRequestMessage(HttpMethod.Get, apiInfoUrl);
             var infoResp = await _httpClient.SendAsync(infoReq);
-            Console.WriteLine($"=== DRIVE API INFO: {await infoResp.Content.ReadAsStringAsync()} ===");
+            var apiInfoBody = await infoResp.Content.ReadAsStringAsync();
+
+            // 👇 Loguear en partes de 1000 chars para no truncar
+            for (int i = 0; i < apiInfoBody.Length; i += 1000)
+                Console.WriteLine($"=== DRIVE API INFO [{i}]: {apiInfoBody.Substring(i, Math.Min(1000, apiInfoBody.Length - i))} ===");
 
             await EnsureFolderHierarchyAsync(destinationFolder, sid);
 
