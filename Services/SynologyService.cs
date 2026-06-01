@@ -23,7 +23,6 @@ namespace CorrePalabras.Services
 
         private string? _cachedSid;
         private string? _cachedDid;
-        private string? _cachedSynoToken;
         private DateTime _sidExpiration = DateTime.MinValue;
 
         public SynologyService(HttpClient httpClient)
@@ -40,9 +39,15 @@ namespace CorrePalabras.Services
                 return _cachedSid;
 
             // Usamos format=cookie para que Synology acepte cookies en requests posteriores
-            string url = $"{_synologyBaseUrl}/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login" +
-                         $"&account={Uri.EscapeDataString(_username)}&passwd={Uri.EscapeDataString(_password)}" +
-                         $"&session=FileStation&format=sid&enable_syno_token=yes";
+            string url =
+                $"{_synologyBaseUrl}/webapi/auth.cgi" +
+                "?api=SYNO.API.Auth" +
+                "&version=3" +
+                "&method=login" +
+                $"&account={Uri.EscapeDataString(_username)}" +
+                $"&passwd={Uri.EscapeDataString(_password)}" +
+                "&session=FileStation" +
+                "&format=cookie";
 
             var rawResponse = await _httpClient.GetStringAsync(url);
             Console.WriteLine($"=== AUTH BODY: {rawResponse} ===");
@@ -53,7 +58,6 @@ namespace CorrePalabras.Services
             {
                 _cachedSid = response.Data.Sid;
                 _cachedDid = response.Data.Did;
-                _cachedSynoToken = response.Data.SynoToken;
                 _sidExpiration = DateTime.UtcNow.AddHours(6);
                 return _cachedSid;
             }
@@ -64,23 +68,55 @@ namespace CorrePalabras.Services
         // Agrega headers de autenticación: Cookie (did + id/sid) y X-SYNO-TOKEN
         private void AddAuthHeaders(HttpRequestMessage req)
         {
-            if (!string.IsNullOrEmpty(_cachedDid) && !string.IsNullOrEmpty(_cachedSid))
-                req.Headers.Add("Cookie", $"did={_cachedDid}; id={_cachedSid}");
+            if (!string.IsNullOrEmpty(_cachedDid) &&
+                !string.IsNullOrEmpty(_cachedSid))
+            {
+                req.Headers.Add(
+                    "Cookie",
+                    $"did={_cachedDid}; id={_cachedSid}");
+            }
+        }
 
-            if (!string.IsNullOrEmpty(_cachedSynoToken))
-                req.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
+        private bool IsSessionExpired(string body)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+
+                if (!doc.RootElement.TryGetProperty("success", out var success))
+                    return false;
+
+                if (success.GetBoolean())
+                    return false;
+
+                if (!doc.RootElement.TryGetProperty("error", out var error))
+                    return false;
+
+                var code = error.GetProperty("code").GetInt32();
+
+                return code == 106 || code == 119;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private async Task RefreshLoginAsync()
+        {
+            _cachedDid = null;
+            _cachedSid = null;
+
+            await GetSidAsync();
         }
 
         // Crea una carpeta usando file_id del parent con autenticación por cookies
         private async Task<string> CreateFolderByIdAsync(string parentFileId, string folderName)
         {
-            // Ensure this matches your route pattern exactly (relative or absolute)
-            string url = $"{_synologyBaseUrl}/webapi/entry.cgi"; 
-            
+            string url = $"{_synologyBaseUrl}/webapi/entry.cgi";
             using var req = new HttpRequestMessage(HttpMethod.Post, url);
             AddAuthHeaders(req);
 
-            // Switch from JSON content to Form URL Encoded content
             var formData = new Dictionary<string, string>
             {
                 { "api", "SYNO.SynologyDrive.Files" },
@@ -97,29 +133,14 @@ namespace CorrePalabras.Services
             Console.WriteLine($"=== CREATE FOLDER BY ID === parent_id: [{parentFileId}] | name: [{folderName}] | result: {raw}");
 
             using var doc = JsonDocument.Parse(raw);
-            var root = doc.RootElement;
-
-            if (root.TryGetProperty("success", out var success) && success.GetBoolean())
+            if (doc.RootElement.TryGetProperty("success", out var success) && success.GetBoolean())
             {
-                if (root.TryGetProperty("data", out var data) && data.TryGetProperty("file_id", out var fid))
-                {
+                if (doc.RootElement.TryGetProperty("data", out var data) &&
+                    data.TryGetProperty("file_id", out var fid))
                     return fid.GetString() ?? "";
-                }
-            }
-            
-            // Check if error code explicitly indicates it already exists (e.g., 117 or similar for Drive API)
-            if (root.TryGetProperty("error", out var errorElement) && errorElement.TryGetProperty("code", out var codeElement))
-            {
-                int errorCode = codeElement.GetInt32();
-                
-                // If it's a structural parameter error (101), don't mask it by trying to search for the file
-                if (errorCode == 101)
-                {
-                    throw new Exception($"Synology rejected parameters (Code 101). Check routing, API version, or permissions.");
-                }
             }
 
-            // Fallback search assuming error meant duplication
+            // Si falló, puede ser que ya existe — buscarla por nombre
             return await GetFileIdByNameAsync(parentFileId, folderName);
         }
 
@@ -181,8 +202,6 @@ namespace CorrePalabras.Services
             content.Add(new StringContent("upload"), "method");
             content.Add(new StringContent(storyFolderFileId), "file_id");
             content.Add(new StringContent("true"), "overwrite");
-            // También incluir _sid como fallback
-            content.Add(new StringContent(sid), "_sid");
 
             using var stream = file.OpenReadStream();
             var streamContent = new StreamContent(stream);
@@ -271,9 +290,11 @@ namespace CorrePalabras.Services
 
             public class LoginData
             {
-                [JsonPropertyName("sid")] public string Sid { get; set; } = string.Empty;
-                [JsonPropertyName("did")] public string Did { get; set; } = string.Empty;
-                [JsonPropertyName("synotoken")] public string SynoToken { get; set; } = string.Empty;
+                [JsonPropertyName("sid")]
+                public string Sid { get; set; } = string.Empty;
+
+                [JsonPropertyName("did")]
+                public string Did { get; set; } = string.Empty;
             }
         }
 
