@@ -74,38 +74,52 @@ namespace CorrePalabras.Services
         // Crea una carpeta usando file_id del parent con autenticación por cookies
         private async Task<string> CreateFolderByIdAsync(string parentFileId, string folderName)
         {
-            string url = $"{_synologyBaseUrl}/webapi/entry.cgi";
+            // Ensure this matches your route pattern exactly (relative or absolute)
+            string url = $"{_synologyBaseUrl}/webapi/entry.cgi"; 
+            
             using var req = new HttpRequestMessage(HttpMethod.Post, url);
             AddAuthHeaders(req);
 
-            var body = new
+            // Switch from JSON content to Form URL Encoded content
+            var formData = new Dictionary<string, string>
             {
-                api = "SYNO.SynologyDrive.Files",
-                version = 6,
-                method = "create_folder",
-                file_id = parentFileId,
-                name = folderName
+                { "api", "SYNO.SynologyDrive.Files" },
+                { "version", "6" },
+                { "method", "create_folder" },
+                { "file_id", parentFileId },
+                { "name", folderName }
             };
 
-            req.Content = new StringContent(
-                JsonSerializer.Serialize(body),
-                System.Text.Encoding.UTF8,
-                "application/json"
-            );
+            req.Content = new FormUrlEncodedContent(formData);
 
             var resp = await _httpClient.SendAsync(req);
             var raw = await resp.Content.ReadAsStringAsync();
             Console.WriteLine($"=== CREATE FOLDER BY ID === parent_id: [{parentFileId}] | name: [{folderName}] | result: {raw}");
 
             using var doc = JsonDocument.Parse(raw);
-            if (doc.RootElement.TryGetProperty("success", out var success) && success.GetBoolean())
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("success", out var success) && success.GetBoolean())
             {
-                if (doc.RootElement.TryGetProperty("data", out var data) &&
-                    data.TryGetProperty("file_id", out var fid))
+                if (root.TryGetProperty("data", out var data) && data.TryGetProperty("file_id", out var fid))
+                {
                     return fid.GetString() ?? "";
+                }
+            }
+            
+            // Check if error code explicitly indicates it already exists (e.g., 117 or similar for Drive API)
+            if (root.TryGetProperty("error", out var errorElement) && errorElement.TryGetProperty("code", out var codeElement))
+            {
+                int errorCode = codeElement.GetInt32();
+                
+                // If it's a structural parameter error (101), don't mask it by trying to search for the file
+                if (errorCode == 101)
+                {
+                    throw new Exception($"Synology rejected parameters (Code 101). Check routing, API version, or permissions.");
+                }
             }
 
-            // Si falló, puede ser que ya existe — buscarla por nombre
+            // Fallback search assuming error meant duplication
             return await GetFileIdByNameAsync(parentFileId, folderName);
         }
 
