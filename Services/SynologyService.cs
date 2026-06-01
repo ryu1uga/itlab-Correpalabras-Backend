@@ -18,7 +18,8 @@ namespace CorrePalabras.Services
         private readonly string _username;
         private readonly string _password;
 
-        private const string StoriesPath = "/team-folders/CPAPPDEV/img/stories";
+        // Cambiamos a ruta más simple que suele funcionar mejor con FileStation
+        private const string StoriesPath = "/CPAPPDEV/img/stories";   // ← Cambiado
 
         private string? _cachedSid;
         private string? _cachedDid;
@@ -97,19 +98,20 @@ namespace CorrePalabras.Services
             var resp = await _httpClient.SendAsync(req);
             var body = await resp.Content.ReadAsStringAsync();
 
-            Console.WriteLine($"[CreateFolder] Path: {parentPath}/{folderName} | Response: {body}");
+            Console.WriteLine($"[CreateFolder] Intentando: {parentPath}/{folderName}");
+            Console.WriteLine($"[CreateFolder] Response: {body}");
 
             using var doc = JsonDocument.Parse(body);
             if (doc.RootElement.TryGetProperty("success", out var success) && success.GetBoolean())
             {
-                Console.WriteLine("✅ Carpeta creada correctamente (o ya existía)");
+                Console.WriteLine("✅ Carpeta creada exitosamente");
                 return;
             }
 
-            // Si falla por que ya existe, lo ignoramos
+            // Si ya existe (error 400)
             if (body.Contains("\"code\":400"))
             {
-                Console.WriteLine("ℹ️ Carpeta ya existía");
+                Console.WriteLine("ℹ️ La carpeta ya existía");
                 return;
             }
 
@@ -145,16 +147,16 @@ namespace CorrePalabras.Services
             var resp = await _httpClient.SendAsync(req);
             var body = await resp.Content.ReadAsStringAsync();
 
-            Console.WriteLine($"[UploadFile] {fileName} | Response: {body}");
+            Console.WriteLine($"[UploadFile] {fileName} → Response: {body}");
 
             using var doc = JsonDocument.Parse(body);
             if (doc.RootElement.TryGetProperty("success", out var success) && success.GetBoolean())
             {
-                Console.WriteLine("✅ Archivo subido correctamente");
+                Console.WriteLine("✅ Archivo subido");
                 return $"{targetPath}/{fileName}";
             }
 
-            throw new Exception($"Error al subir archivo: {body}");
+            throw new Exception($"Error subiendo archivo: {body}");
         }
 
         // ======================= COMPARTIR =======================
@@ -178,14 +180,14 @@ namespace CorrePalabras.Services
             if (result?.Success == true && result.Data?.Links?.Length > 0)
             {
                 var shareUrl = result.Data.Links[0].Url;
-                Console.WriteLine($"✅ Share generado: {shareUrl}");
+                Console.WriteLine($"✅ Share creado: {shareUrl}");
                 return shareUrl;
             }
 
-            throw new Exception($"No se pudo generar el enlace: {body}");
+            throw new Exception($"Error creando share: {body}");
         }
 
-        // ======================= MÉTODO PRINCIPAL =======================
+        // ======================= PRINCIPAL =======================
         public async Task<string> UploadAndShareAsync(IFormFile file, string destinationFolder, string fileName)
         {
             Console.WriteLine($"[UploadAndShare] Iniciando para: {destinationFolder}");
@@ -199,48 +201,39 @@ namespace CorrePalabras.Services
             return await CreateShareByPathAsync(fullFilePath);
         }
 
-        // ======================= DELETE (IMPLEMENTADO) =======================
         public async Task DeleteBySharingUrlAsync(string sharingUrl)
         {
             if (string.IsNullOrEmpty(sharingUrl)) return;
 
             await EnsureValidSessionAsync();
 
-            // Listar shares
-            string listUrl = $"{_synologyBaseUrl}/webapi/entry.cgi" +
-                             "?api=SYNO.FileStation.Sharing&version=3&method=list&_sid=" + _cachedSid;
+            string listUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=list&_sid={_cachedSid}";
 
             using var listReq = new HttpRequestMessage(HttpMethod.Get, listUrl);
             AddAuthHeaders(listReq);
 
-            var listResponse = await _httpClient.SendAsync(listReq);
-            var sharingData = await listResponse.Content.ReadFromJsonAsync<SynologySharingResponse>();
+            var sharingResponse = await _httpClient.SendAsync(listReq);
+            var data = await sharingResponse.Content.ReadFromJsonAsync<SynologySharingResponse>();
 
-            var link = sharingData?.Data?.Links?.FirstOrDefault(l => l.Url == sharingUrl);
-            if (link == null)
-            {
-                Console.WriteLine("⚠️ Share no encontrado para eliminar");
-                return;
-            }
+            var link = data?.Data?.Links?.FirstOrDefault(l => l.Url == sharingUrl);
+            if (link == null) return;
 
-            // Eliminar archivo físico
-            string deleteFileUrl = $"{_synologyBaseUrl}/webapi/entry.cgi" +
-                                   "?api=SYNO.FileStation.Delete&version=2&method=delete" +
-                                   $"&path=%5B%22{Uri.EscapeDataString(link.Path)}%22%5D&recursive=true&_sid={_cachedSid}";
+            // Delete file
+            string delFileUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Delete&version=2&method=delete" +
+                                $"&path=%5B%22{Uri.EscapeDataString(link.Path)}%22%5D&recursive=true&_sid={_cachedSid}";
 
-            await _httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, deleteFileUrl) { /* auth ya en headers */ });
+            await _httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, delFileUrl));
 
-            // Eliminar el share
-            string deleteShareUrl = $"{_synologyBaseUrl}/webapi/entry.cgi" +
-                                    "?api=SYNO.FileStation.Sharing&version=3&method=delete" +
-                                    $"&id=%5B%22{link.Id}%22%5D&_sid={_cachedSid}";
+            // Delete share
+            string delShareUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=delete" +
+                                 $"&id=%5B%22{link.Id}%22%5D&_sid={_cachedSid}";
 
-            await _httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, deleteShareUrl));
+            await _httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, delShareUrl));
 
-            Console.WriteLine($"🗑️ Share y archivo eliminados: {sharingUrl}");
+            Console.WriteLine($"🗑️ Eliminado: {sharingUrl}");
         }
 
-        #region DTOs
+        #region DTOs (igual que antes)
         public class SynologyBaseResponse
         {
             [JsonPropertyName("success")] public bool Success { get; set; }
@@ -255,7 +248,6 @@ namespace CorrePalabras.Services
         public class SynologyLoginResponse : SynologyBaseResponse
         {
             [JsonPropertyName("data")] public LoginData? Data { get; set; }
-
             public class LoginData
             {
                 [JsonPropertyName("sid")] public string Sid { get; set; } = "";
@@ -266,12 +258,10 @@ namespace CorrePalabras.Services
         public class SynologySharingResponse : SynologyBaseResponse
         {
             [JsonPropertyName("data")] public SharingData? Data { get; set; }
-
             public class SharingData
             {
                 [JsonPropertyName("links")] public SharingLink[] Links { get; set; } = Array.Empty<SharingLink>();
             }
-
             public class SharingLink
             {
                 [JsonPropertyName("id")] public string Id { get; set; } = "";
