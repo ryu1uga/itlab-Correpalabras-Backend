@@ -18,235 +18,99 @@ namespace CorrePalabras.Services
         private readonly string _username;
         private readonly string _password;
 
-        // file_id conocido de /team-folders/CPAPPDEV/img/stories
-        private const string StoriesFileId = "953604116253293456";
-
+        // Caché de sesión para no pedir login en cada subida
         private string? _cachedSid;
-        private string? _cachedDid;
-        private string? _cachedSynoToken;
         private DateTime _sidExpiration = DateTime.MinValue;
 
         public SynologyService(HttpClient httpClient)
         {
             _httpClient = httpClient;
+            // Se leen las variables de entorno. Nota: asegúrate de que SYNOLOGY_BASE_URL 
+            // incluya el sufijo "/drive" si tu red interna requiere ese ruteo.
             _synologyBaseUrl = Environment.GetEnvironmentVariable("SYNOLOGY_BASE_URL") ?? "http://localhost:5000";
             _username = Environment.GetEnvironmentVariable("SYNOLOGY_USERNAME") ?? "";
             _password = Environment.GetEnvironmentVariable("SYNOLOGY_PASSWORD") ?? "";
         }
 
+        /// <summary>
+        /// Obtiene y mantiene activo el token de sesión (SID)
+        /// </summary>
         private async Task<string> GetSidAsync()
         {
             if (!string.IsNullOrEmpty(_cachedSid) && DateTime.UtcNow < _sidExpiration)
                 return _cachedSid;
 
-            // Usamos format=cookie para que Synology acepte cookies en requests posteriores
-            string url = $"{_synologyBaseUrl}/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login" +
+            string url = $"{_synologyBaseUrl.TrimEnd('/')}/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login" +
                          $"&account={Uri.EscapeDataString(_username)}&passwd={Uri.EscapeDataString(_password)}" +
-                         $"&session=FileStation&format=sid&enable_syno_token=yes";
+                         $"&session=FileStation&format=sid";
 
             var rawResponse = await _httpClient.GetStringAsync(url);
-            Console.WriteLine($"=== AUTH BODY: {rawResponse} ===");
-
             var response = JsonSerializer.Deserialize<SynologyLoginResponse>(rawResponse);
 
             if (response != null && response.Success && response.Data != null)
             {
                 _cachedSid = response.Data.Sid;
-                _cachedDid = response.Data.Did;
-                _cachedSynoToken = response.Data.SynoToken;
-                _sidExpiration = DateTime.UtcNow.AddHours(6);
+                // El SID suele expirar en Synology, lo guardamos por unas horas
+                _sidExpiration = DateTime.UtcNow.AddHours(6); 
                 return _cachedSid;
             }
 
             throw new Exception($"Error de autenticación Synology. Código: {response?.Error?.Code}. Raw: {rawResponse}");
         }
 
-        // Agrega headers de autenticación: Cookie (did + id/sid) y X-SYNO-TOKEN
-        private void AddAuthHeaders(HttpRequestMessage req)
-        {
-            if (!string.IsNullOrEmpty(_cachedDid) && !string.IsNullOrEmpty(_cachedSid))
-                req.Headers.Add("Cookie", $"did={_cachedDid}; id={_cachedSid}");
-
-            if (!string.IsNullOrEmpty(_cachedSynoToken))
-                req.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
-        }
-
-        // Crea una carpeta usando file_id del parent con autenticación por cookies
-        private async Task<string> CreateFolderByIdAsync(string parentFileId, string folderName)
-        {
-            // Ensure this matches your route pattern exactly (relative or absolute)
-            string url = $"{_synologyBaseUrl}/webapi/entry.cgi"; 
-            
-            using var req = new HttpRequestMessage(HttpMethod.Post, url);
-            AddAuthHeaders(req);
-
-            // Switch from JSON content to Form URL Encoded content
-            var formData = new Dictionary<string, string>
-            {
-                { "api", "SYNO.SynologyDrive.Files" },
-                { "version", "6" },
-                { "method", "create_folder" },
-                { "file_id", parentFileId },
-                { "name", folderName }
-            };
-
-            req.Content = new FormUrlEncodedContent(formData);
-
-            var resp = await _httpClient.SendAsync(req);
-            var raw = await resp.Content.ReadAsStringAsync();
-            Console.WriteLine($"=== CREATE FOLDER BY ID === parent_id: [{parentFileId}] | name: [{folderName}] | result: {raw}");
-
-            using var doc = JsonDocument.Parse(raw);
-            var root = doc.RootElement;
-
-            if (root.TryGetProperty("success", out var success) && success.GetBoolean())
-            {
-                if (root.TryGetProperty("data", out var data) && data.TryGetProperty("file_id", out var fid))
-                {
-                    return fid.GetString() ?? "";
-                }
-            }
-            
-            // Check if error code explicitly indicates it already exists (e.g., 117 or similar for Drive API)
-            if (root.TryGetProperty("error", out var errorElement) && errorElement.TryGetProperty("code", out var codeElement))
-            {
-                int errorCode = codeElement.GetInt32();
-                
-                // If it's a structural parameter error (101), don't mask it by trying to search for the file
-                if (errorCode == 101)
-                {
-                    throw new Exception($"Synology rejected parameters (Code 101). Check routing, API version, or permissions.");
-                }
-            }
-
-            // Fallback search assuming error meant duplication
-            return await GetFileIdByNameAsync(parentFileId, folderName);
-        }
-
-        // Lista el contenido de una carpeta por su path (Drive acepta path para list)
-        // y busca el file_id de un item por nombre
-        private async Task<string> GetFileIdByNameAsync(string parentFileId, string name)
-        {
-            // Usamos path conocido según el parentFileId
-            string parentPath = parentFileId == StoriesFileId
-                ? "/team-folders/CPAPPDEV/img/stories"
-                : "/team-folders/CPAPPDEV";
-
-            string url = $"{_synologyBaseUrl}/webapi/entry.cgi" +
-                         $"?api=SYNO.SynologyDrive.Files&version=6&method=list" +
-                         $"&path={Uri.EscapeDataString(parentPath)}";
-
-            using var req = new HttpRequestMessage(HttpMethod.Get, url);
-            AddAuthHeaders(req);
-
-            var resp = await _httpClient.SendAsync(req);
-            var raw = await resp.Content.ReadAsStringAsync();
-            Console.WriteLine($"=== LIST FOR FILE_ID === path: [{parentPath}] | looking for: [{name}] | result: {raw.Substring(0, Math.Min(500, raw.Length))}... ===");
-
-            using var doc = JsonDocument.Parse(raw);
-            if (doc.RootElement.TryGetProperty("data", out var data) &&
-                data.TryGetProperty("items", out var items))
-            {
-                foreach (var item in items.EnumerateArray())
-                {
-                    var itemName = item.TryGetProperty("name", out var n) ? n.GetString() : null;
-                    if (itemName == name && item.TryGetProperty("file_id", out var fid))
-                        return fid.GetString() ?? "";
-                }
-            }
-
-            throw new Exception($"No se encontró '{name}' en '{parentPath}'");
-        }
-
+        /// <summary>
+        /// Sube la imagen y retorna el link compartido de File Station
+        /// </summary>
         public async Task<string> UploadAndShareAsync(IFormFile file, string destinationFolder, string fileName)
         {
+            if (file == null || file.Length == 0)
+                throw new ArgumentException("El archivo está vacío o es nulo.");
+
             string sid = await GetSidAsync();
+            string endpoint = $"{_synologyBaseUrl.TrimEnd('/')}/webapi/entry.cgi";
 
-            // destinationFolder viene como /CPAPPDEV/img/stories/{guid}
-            var storyGuid = destinationFolder.TrimEnd('/').Split('/').Last();
-            Console.WriteLine($"=== STORY GUID: {storyGuid} | RUTA DESTINO: {destinationFolder} ===");
+            // 1. SUBIR ARCHIVO 
+            using var uploadReq = new HttpRequestMessage(HttpMethod.Post, endpoint);
+            using var content = new MultipartFormDataContent();
 
-            // 1. Usamos directamente FileStation Upload. 
-            // Al usar 'create_parents', Synology crea el folder del GUID por nosotros automáticamente.
-            string uploadUrl = $"{_synologyBaseUrl}/webapi/entry.cgi";
-            using var uploadReq = new HttpRequestMessage(HttpMethod.Post, uploadUrl);
-            AddAuthHeaders(uploadReq);
+            // Parámetros obligatorios escapados con comillas dobles para evitar el Error 101
+            content.Add(new StringContent("SYNO.FileStation.Upload"), "\"api\"");
+            content.Add(new StringContent("2"), "\"version\"");
+            content.Add(new StringContent("upload"), "\"method\"");
+            content.Add(new StringContent(sid), "\"_sid\"");
+            content.Add(new StringContent("true"), "\"overwrite\"");
+            content.Add(new StringContent("true"), "\"create_parents\""); // <- Crea el folder GUID por ti
+            content.Add(new StringContent(destinationFolder), "\"path\"");
 
-            using var content = new MultipartFormDataContent("AaB03x");
-            content.Add(new StringContent("SYNO.FileStation.Upload"), "api");
-            content.Add(new StringContent("2"), "version");
-            content.Add(new StringContent("upload"), "method");
-            
-            // Pasamos la ruta completa
-            content.Add(new StringContent(destinationFolder), "path"); 
-            
-            // La magia: crea la subcarpeta de la historia automáticamente si no existe
-            content.Add(new StringContent("true"), "create_parents"); 
-            content.Add(new StringContent("true"), "overwrite");
-            content.Add(new StringContent(sid), "_sid");
-
+            // Procesar el IFormFile como Stream (Eficiente en memoria)
             using var stream = file.OpenReadStream();
-            var streamContent = new StreamContent(stream);
-            streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
-                file.ContentType ?? "application/octet-stream");
-            content.Add(streamContent, "file", fileName);
+            using var fileContent = new StreamContent(stream);
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(file.ContentType ?? "application/octet-stream");
+            
+            content.Add(fileContent, "\"file\"", $"\"{fileName}\"");
             uploadReq.Content = content;
 
-            // 2. Ejecutar petición de subida
             var uploadResp = await _httpClient.SendAsync(uploadReq);
             var uploadBody = await uploadResp.Content.ReadAsStringAsync();
-            Console.WriteLine($"=== FILESTATION UPLOAD RESPONSE ===\nStatus: {uploadResp.StatusCode}\nBody: {uploadBody}\n================================");
-
             var uploadResult = JsonSerializer.Deserialize<SynologyBaseResponse>(uploadBody);
+
             if (uploadResult == null || !uploadResult.Success)
                 throw new Exception($"Error al subir archivo a Synology FileStation. Code: {uploadResult?.Error?.Code}");
 
-            // 3. Generar sharing link con FileStation (como ya lo tenías, funciona con paths)
-            return await GenerateSharingLinkAsync($"{destinationFolder}/{fileName}", sid);
-        }
-        public async Task DeleteBySharingUrlAsync(string sharingUrl)
-        {
-            if (string.IsNullOrEmpty(sharingUrl)) return;
-
-            string sid = await GetSidAsync();
-            string listUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=list&_sid={sid}";
-
-            using var listRequest = new HttpRequestMessage(HttpMethod.Get, listUrl);
-            AddAuthHeaders(listRequest);
-
-            var listHttpResponse = await _httpClient.SendAsync(listRequest);
-            var listResponse = await listHttpResponse.Content.ReadFromJsonAsync<SynologySharingResponse>();
-
-            if (listResponse != null && listResponse.Success && listResponse.Data?.Links != null)
-            {
-                var matchedLink = listResponse.Data.Links.FirstOrDefault(l => l.Url == sharingUrl);
-                if (matchedLink != null)
-                {
-                    string deleteFileUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Delete&version=2&method=delete" +
-                                           $"&path=%5B%22{Uri.EscapeDataString(matchedLink.Path)}%22%5D&recursive=true&_sid={sid}";
-                    using var deleteFileRequest = new HttpRequestMessage(HttpMethod.Get, deleteFileUrl);
-                    AddAuthHeaders(deleteFileRequest);
-                    await _httpClient.SendAsync(deleteFileRequest);
-
-                    string cleanLinkUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=delete" +
-                                          $"&id=%5B%22{matchedLink.Id}%22%5D&_sid={sid}";
-                    using var cleanLinkRequest = new HttpRequestMessage(HttpMethod.Get, cleanLinkUrl);
-                    AddAuthHeaders(cleanLinkRequest);
-                    await _httpClient.SendAsync(cleanLinkRequest);
-                }
-            }
+            // 2. GENERAR LINK COMPARTIDO
+            string fullPath = $"{destinationFolder.TrimEnd('/')}/{fileName}";
+            return await GenerateSharingLinkAsync(fullPath, sid);
         }
 
+        /// <summary>
+        /// Genera el enlace público (Shared Link) del archivo subido
+        /// </summary>
         private async Task<string> GenerateSharingLinkAsync(string filePath, string sid)
         {
-            string url = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=create" +
+            string url = $"{_synologyBaseUrl.TrimEnd('/')}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=create" +
                          $"&path=%22{Uri.EscapeDataString(filePath)}%22&_sid={sid}";
 
-            using var req = new HttpRequestMessage(HttpMethod.Get, url);
-            AddAuthHeaders(req);
-
-            var httpResponse = await _httpClient.SendAsync(req);
-            var response = await httpResponse.Content.ReadFromJsonAsync<SynologySharingResponse>();
+            var response = await _httpClient.GetFromJsonAsync<SynologySharingResponse>(url);
 
             if (response != null && response.Success && response.Data?.Links?.Length > 0)
                 return response.Data.Links[0].Url;
@@ -254,7 +118,42 @@ namespace CorrePalabras.Services
             throw new Exception("No se pudo generar el enlace compartido en Synology.");
         }
 
+        /// <summary>
+        /// Elimina físicamente el archivo del NAS y también elimina su Link Compartido
+        /// </summary>
+        public async Task DeleteBySharingUrlAsync(string sharingUrl)
+        {
+            if (string.IsNullOrEmpty(sharingUrl)) return;
+
+            string sid = await GetSidAsync();
+            
+            // 1. Obtener la lista de enlaces compartidos para buscar a cuál pertenece la URL que nos pasaron
+            string listUrl = $"{_synologyBaseUrl.TrimEnd('/')}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=list&_sid={sid}";
+            var listResponse = await _httpClient.GetFromJsonAsync<SynologySharingResponse>(listUrl);
+
+            if (listResponse != null && listResponse.Success && listResponse.Data?.Links != null)
+            {
+                // Encontrar el enlace
+                var matchedLink = listResponse.Data.Links.FirstOrDefault(l => l.Url == sharingUrl);
+                
+                if (matchedLink != null)
+                {
+                    // 2. Borrar el archivo real en el NAS
+                    // El path en la API de eliminación es un arreglo en JSON ["/ruta/al/archivo"] por eso el %5B%22...%22%5D
+                    string deleteFileUrl = $"{_synologyBaseUrl.TrimEnd('/')}/webapi/entry.cgi?api=SYNO.FileStation.Delete&version=2&method=delete" +
+                                           $"&path=%5B%22{Uri.EscapeDataString(matchedLink.Path)}%22%5D&recursive=true&_sid={sid}";
+                    await _httpClient.GetAsync(deleteFileUrl);
+
+                    // 3. Limpiar/Borrar el enlace compartido de la base de datos de Synology
+                    string cleanLinkUrl = $"{_synologyBaseUrl.TrimEnd('/')}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=delete" +
+                                          $"&id=%5B%22{matchedLink.Id}%22%5D&_sid={sid}";
+                    await _httpClient.GetAsync(cleanLinkUrl);
+                }
+            }
+        }
+
         #region DTOs Internos
+
         public class SynologyBaseResponse
         {
             [JsonPropertyName("success")] public bool Success { get; set; }
@@ -273,8 +172,6 @@ namespace CorrePalabras.Services
             public class LoginData
             {
                 [JsonPropertyName("sid")] public string Sid { get; set; } = string.Empty;
-                [JsonPropertyName("did")] public string Did { get; set; } = string.Empty;
-                [JsonPropertyName("synotoken")] public string SynoToken { get; set; } = string.Empty;
             }
         }
 
@@ -294,6 +191,7 @@ namespace CorrePalabras.Services
                 [JsonPropertyName("path")] public string Path { get; set; } = string.Empty;
             }
         }
+
         #endregion
     }
 }
