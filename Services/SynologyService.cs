@@ -18,6 +18,7 @@ namespace CorrePalabras.Services
         private readonly string _password;
 
         private string? _cachedSid;
+        private string? _cachedSynoToken; // 👈 nuevo: guardamos el synotoken
         private DateTime _sidExpiration = DateTime.MinValue;
 
         public SynologyService(HttpClient httpClient)
@@ -33,29 +34,32 @@ namespace CorrePalabras.Services
             if (!string.IsNullOrEmpty(_cachedSid) && DateTime.UtcNow < _sidExpiration)
                 return _cachedSid;
 
+            // 👇 Cambiado: version=3 en lugar de version=6
             string url = $"{_synologyBaseUrl}/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login&account={Uri.EscapeDataString(_username)}&passwd={Uri.EscapeDataString(_password)}&session=FileStation&format=sid&enable_syno_token=yes";
 
             var rawResponse = await _httpClient.GetStringAsync(url);
-            Console.WriteLine($"=== AUTH BODY: {rawResponse} ===");  // 👈
+            Console.WriteLine($"=== AUTH BODY: {rawResponse} ===");
 
             var response = System.Text.Json.JsonSerializer.Deserialize<SynologyLoginResponse>(rawResponse);
 
             if (response != null && response.Success && response.Data != null)
             {
                 _cachedSid = response.Data.Sid;
+                _cachedSynoToken = response.Data.SynoToken; // 👈 nuevo: guardamos el token
                 _sidExpiration = DateTime.UtcNow.AddHours(6);
                 return _cachedSid;
             }
 
-            throw new Exception("Error de autenticación global en Synology File Station.");
+            // 👇 Mejorado: incluye el código de error en el mensaje
+            throw new Exception($"Error de autenticación Synology. Código: {response?.Error?.Code}. Raw: {rawResponse}");
         }
+
         private async Task EnsureFolderHierarchyAsync(string fullFolderPath, string sid)
         {
-            // Probar ambos prefijos
             var pathsToTry = new[]
             {
-                fullFolderPath,                                          // /CPAPPDEV/img/stories/{id}
-                "/team-folders" + fullFolderPath                        // /team-folders/CPAPPDEV/img/stories/{id}
+                fullFolderPath,
+                "/team-folders" + fullFolderPath
             };
 
             foreach (var path in pathsToTry)
@@ -65,6 +69,8 @@ namespace CorrePalabras.Services
                 string folderName = parts[^1];
 
                 string url = $"{_synologyBaseUrl}/webapi/entry.cgi";
+                using var requestMessage = new HttpRequestMessage(HttpMethod.Post, url);
+
                 using var content = new MultipartFormDataContent();
                 content.Add(new StringContent("SYNO.FileStation.CreateFolder"), "api");
                 content.Add(new StringContent("2"), "version");
@@ -74,7 +80,13 @@ namespace CorrePalabras.Services
                 content.Add(new StringContent("true"), "force_parent");
                 content.Add(new StringContent(sid), "_sid");
 
-                var response = await _httpClient.PostAsync(url, content);
+                requestMessage.Content = content;
+
+                // 👇 nuevo: agregamos el X-SYNO-TOKEN header
+                if (!string.IsNullOrEmpty(_cachedSynoToken))
+                    requestMessage.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
+
+                var response = await _httpClient.SendAsync(requestMessage);
                 var raw = await response.Content.ReadAsStringAsync();
                 Console.WriteLine($"=== CREATE FOLDER === path: [{path}] | parent: [{parentPath}] | name: [{folderName}] | result: {raw}");
             }
@@ -87,6 +99,10 @@ namespace CorrePalabras.Services
             await EnsureFolderHierarchyAsync(destinationFolder, sid);
 
             string url = $"{_synologyBaseUrl}/webapi/entry.cgi";
+
+            // 👇 Cambiado: usamos HttpRequestMessage para poder agregar el header X-SYNO-TOKEN
+            using var requestMessage = new HttpRequestMessage(HttpMethod.Post, url);
+
             using var content = new MultipartFormDataContent("AaB03x");
             content.Add(new StringContent("SYNO.FileStation.Upload"), "api");
             content.Add(new StringContent("2"), "version");
@@ -101,7 +117,13 @@ namespace CorrePalabras.Services
             streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(file.ContentType ?? "application/octet-stream");
             content.Add(streamContent, "file", fileName);
 
-            var response = await _httpClient.PostAsync(url, content);
+            requestMessage.Content = content;
+
+            // 👇 nuevo: agregamos el X-SYNO-TOKEN header
+            if (!string.IsNullOrEmpty(_cachedSynoToken))
+                requestMessage.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
+
+            var response = await _httpClient.SendAsync(requestMessage);
             var rawBody = await response.Content.ReadAsStringAsync();
             Console.WriteLine($"=== SYNOLOGY UPLOAD RESPONSE ===\nStatus: {response.StatusCode}\nFolder: {destinationFolder}\nBody: {rawBody}\n================================");
 
@@ -118,7 +140,14 @@ namespace CorrePalabras.Services
 
             string sid = await GetSidAsync();
             string listUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=list&_sid={sid}";
-            var listResponse = await _httpClient.GetFromJsonAsync<SynologySharingResponse>(listUrl);
+
+            // 👇 Usamos HttpRequestMessage para agregar el header X-SYNO-TOKEN
+            using var listRequest = new HttpRequestMessage(HttpMethod.Get, listUrl);
+            if (!string.IsNullOrEmpty(_cachedSynoToken))
+                listRequest.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
+
+            var listHttpResponse = await _httpClient.SendAsync(listRequest);
+            var listResponse = await listHttpResponse.Content.ReadFromJsonAsync<SynologySharingResponse>();
 
             if (listResponse != null && listResponse.Success && listResponse.Data?.Links != null)
             {
@@ -126,10 +155,16 @@ namespace CorrePalabras.Services
                 if (matchedLink != null)
                 {
                     string deleteFileUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Delete&version=2&method=delete&path=%5B%22{Uri.EscapeDataString(matchedLink.Path)}%22%5D&recursive=true&_sid={sid}";
-                    await _httpClient.GetFromJsonAsync<SynologyBaseResponse>(deleteFileUrl);
+                    using var deleteFileRequest = new HttpRequestMessage(HttpMethod.Get, deleteFileUrl);
+                    if (!string.IsNullOrEmpty(_cachedSynoToken))
+                        deleteFileRequest.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
+                    await _httpClient.SendAsync(deleteFileRequest);
 
                     string cleanLinkUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=delete&id=%5B%22{matchedLink.Id}%22%5D&_sid={sid}";
-                    await _httpClient.GetFromJsonAsync<SynologyBaseResponse>(cleanLinkUrl);
+                    using var cleanLinkRequest = new HttpRequestMessage(HttpMethod.Get, cleanLinkUrl);
+                    if (!string.IsNullOrEmpty(_cachedSynoToken))
+                        cleanLinkRequest.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
+                    await _httpClient.SendAsync(cleanLinkRequest);
                 }
             }
         }
@@ -137,7 +172,14 @@ namespace CorrePalabras.Services
         private async Task<string> GenerateSharingLinkAsync(string filePath, string sid)
         {
             string url = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=create&path=%22{Uri.EscapeDataString(filePath)}%22&_sid={sid}";
-            var response = await _httpClient.GetFromJsonAsync<SynologySharingResponse>(url);
+
+            // 👇 Usamos HttpRequestMessage para agregar el header X-SYNO-TOKEN
+            using var requestMessage = new HttpRequestMessage(HttpMethod.Get, url);
+            if (!string.IsNullOrEmpty(_cachedSynoToken))
+                requestMessage.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
+
+            var httpResponse = await _httpClient.SendAsync(requestMessage);
+            var response = await httpResponse.Content.ReadFromJsonAsync<SynologySharingResponse>();
 
             if (response != null && response.Success && response.Data?.Links?.Length > 0)
                 return response.Data.Links[0].Url;
@@ -146,10 +188,44 @@ namespace CorrePalabras.Services
         }
 
         #region DTOs Internos
-        public class SynologyBaseResponse { [JsonPropertyName("success")] public bool Success { get; set; } [JsonPropertyName("error")] public SynologyError? Error { get; set; } }
-        public class SynologyError { [JsonPropertyName("code")] public int Code { get; set; } }
-        public class SynologyLoginResponse : SynologyBaseResponse { [JsonPropertyName("data")] public LoginData? Data { get; set; } public class LoginData { [JsonPropertyName("sid")] public string Sid { get; set; } = string.Empty; } }
-        public class SynologySharingResponse : SynologyBaseResponse { [JsonPropertyName("data")] public SharingData? Data { get; set; } public class SharingData { [JsonPropertyName("links")] public SharingLink[] Links { get; set; } = Array.Empty<SharingLink>(); } public class SharingLink { [JsonPropertyName("id")] public string Id { get; set; } = string.Empty; [JsonPropertyName("url")] public string Url { get; set; } = string.Empty; [JsonPropertyName("path")] public string Path { get; set; } = string.Empty; } }
+        public class SynologyBaseResponse
+        {
+            [JsonPropertyName("success")] public bool Success { get; set; }
+            [JsonPropertyName("error")] public SynologyError? Error { get; set; }
+        }
+
+        public class SynologyError
+        {
+            [JsonPropertyName("code")] public int Code { get; set; }
+        }
+
+        public class SynologyLoginResponse : SynologyBaseResponse
+        {
+            [JsonPropertyName("data")] public LoginData? Data { get; set; }
+
+            public class LoginData
+            {
+                [JsonPropertyName("sid")] public string Sid { get; set; } = string.Empty;
+                [JsonPropertyName("synotoken")] public string SynoToken { get; set; } = string.Empty; // 👈 nuevo
+            }
+        }
+
+        public class SynologySharingResponse : SynologyBaseResponse
+        {
+            [JsonPropertyName("data")] public SharingData? Data { get; set; }
+
+            public class SharingData
+            {
+                [JsonPropertyName("links")] public SharingLink[] Links { get; set; } = Array.Empty<SharingLink>();
+            }
+
+            public class SharingLink
+            {
+                [JsonPropertyName("id")] public string Id { get; set; } = string.Empty;
+                [JsonPropertyName("url")] public string Url { get; set; } = string.Empty;
+                [JsonPropertyName("path")] public string Path { get; set; } = string.Empty;
+            }
+        }
         #endregion
     }
 }
