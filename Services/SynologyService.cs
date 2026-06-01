@@ -18,8 +18,10 @@ namespace CorrePalabras.Services
         private readonly string _username;
         private readonly string _password;
 
-        // El path base del team folder en la Drive API
-        private const string DriveTeamFolderBase = "/team-folders/CPAPPDEV";
+        // file_id raíz del Team Folder CPAPPDEV (constante conocida)
+        private const string CpappdevFileId = "953441541020491937";
+        // file_id de /team-folders/CPAPPDEV/img/stories (constante conocida)
+        private const string StoriesFileId = "953604116253293456";
 
         private string? _cachedSid;
         private string? _cachedSynoToken;
@@ -58,25 +60,10 @@ namespace CorrePalabras.Services
             throw new Exception($"Error de autenticación Synology. Código: {response?.Error?.Code}. Raw: {rawResponse}");
         }
 
-        // Convierte /CPAPPDEV/img/stories/{id} → /team-folders/CPAPPDEV/img/stories/{id}
-        private string ToDriverPath(string fileStationPath)
+        // Crea una carpeta usando file_id del parent. Devuelve el file_id de la carpeta creada/existente.
+        private async Task<string> CreateFolderByIdAsync(string parentFileId, string folderName, string sid)
         {
-            // fileStationPath viene como /CPAPPDEV/img/stories/{id}
-            // La Drive API necesita /team-folders/CPAPPDEV/img/stories/{id}
-            var relative = fileStationPath.TrimStart('/');
-            // Quita el primer segmento (CPAPPDEV) y reemplaza con el base de Drive
-            var firstSlash = relative.IndexOf('/');
-            var subPath = firstSlash >= 0 ? relative.Substring(firstSlash) : "";
-            return DriveTeamFolderBase + subPath;
-        }
-
-        // Crea una carpeta usando SYNO.SynologyDrive.Files
-        private async Task CreateDriveFolderAsync(string drivePath, string sid)
-        {
-            var lastSlash = drivePath.LastIndexOf('/');
-            var parentPath = drivePath.Substring(0, lastSlash);
-            var folderName = drivePath.Substring(lastSlash + 1);
-
+            // 1. Intentar crear la carpeta
             string url = $"{_synologyBaseUrl}/webapi/entry.cgi";
             using var req = new HttpRequestMessage(HttpMethod.Post, url);
             if (!string.IsNullOrEmpty(_cachedSynoToken))
@@ -87,7 +74,7 @@ namespace CorrePalabras.Services
                 api = "SYNO.SynologyDrive.Files",
                 version = 6,
                 method = "create_folder",
-                path = parentPath,
+                file_id = parentFileId,
                 name = folderName
             };
 
@@ -99,80 +86,80 @@ namespace CorrePalabras.Services
 
             var resp = await _httpClient.SendAsync(req);
             var raw = await resp.Content.ReadAsStringAsync();
-            Console.WriteLine($"=== DRIVE CREATE FOLDER === parent: [{parentPath}] | name: [{folderName}] | result: {raw}");
-            // Ignoramos errores — la carpeta puede ya existir
-        }
+            Console.WriteLine($"=== CREATE FOLDER BY ID === parent_id: [{parentFileId}] | name: [{folderName}] | result: {raw}");
 
-        // Crea toda la jerarquía de carpetas usando paths de Drive API
-        private async Task EnsureDriveFolderHierarchyAsync(string fileStationPath, string sid)
-        {
-            var drivePath = ToDriverPath(fileStationPath);
-            // drivePath = /team-folders/CPAPPDEV/img/stories/{id}
-            // Necesitamos crear: /team-folders/CPAPPDEV/img, /team-folders/CPAPPDEV/img/stories, /team-folders/CPAPPDEV/img/stories/{id}
-            // El base /team-folders/CPAPPDEV ya existe, así que empezamos desde el siguiente nivel
-
-            var parts = drivePath.Split('/'); // ["", "team-folders", "CPAPPDEV", "img", "stories", "{id}"]
-            // Base seguro = primeros 3 partes = /team-folders/CPAPPDEV
-            int baseDepth = 3; // índices 0,1,2 = "", "team-folders", "CPAPPDEV"
-
-            for (int i = baseDepth + 1; i <= parts.Length; i++)
+            // 2. Parsear file_id de la respuesta si tuvo éxito
+            using var doc = JsonDocument.Parse(raw);
+            if (doc.RootElement.TryGetProperty("success", out var success) && success.GetBoolean())
             {
-                var folderToCreate = string.Join("/", parts[..i]);
-                if (!folderToCreate.StartsWith("/")) folderToCreate = "/" + folderToCreate;
-                await CreateDriveFolderAsync(folderToCreate, sid);
+                if (doc.RootElement.TryGetProperty("data", out var data) &&
+                    data.TryGetProperty("file_id", out var fid))
+                    return fid.GetString() ?? "";
             }
+
+            // 3. Si falló (posiblemente ya existe), buscar el file_id listando el parent
+            return await GetFileIdByNameAsync(parentFileId, folderName, sid);
         }
 
-        // Upload del archivo usando SYNO.SynologyDrive.Files upload
-        private async Task<string> UploadViaDriveAsync(IFormFile file, string fileStationFolder, string fileName, string sid)
+        // Busca el file_id de un item por nombre dentro de un parent (por file_id)
+        private async Task<string> GetFileIdByNameAsync(string parentFileId, string name, string sid)
         {
-            var driveFolderPath = ToDriverPath(fileStationFolder);
-            Console.WriteLine($"=== DRIVE PATH PARA UPLOAD: {driveFolderPath} ===");
-
-            // 👇 TEMPORAL: obtener file_id de /team-folders/CPAPPDEV/img/stories
-            var listStoriesUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.SynologyDrive.Files&version=6&method=list&path={Uri.EscapeDataString("/team-folders/CPAPPDEV/img/stories")}&_sid={sid}";
-            using var listStoriesReq = new HttpRequestMessage(HttpMethod.Get, listStoriesUrl);
-            if (!string.IsNullOrEmpty(_cachedSynoToken)) listStoriesReq.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
-            var listStoriesResp = await _httpClient.SendAsync(listStoriesReq);
-            Console.WriteLine($"=== STORIES FOLDER CONTENT: {await listStoriesResp.Content.ReadAsStringAsync()} ===");
-
-            // 👇 TEMPORAL: obtener file_id de stories misma carpeta
-            var getStoriesUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.SynologyDrive.Files&version=6&method=get&path={Uri.EscapeDataString("/team-folders/CPAPPDEV/img/stories")}&_sid={sid}";
-            using var getStoriesReq = new HttpRequestMessage(HttpMethod.Get, getStoriesUrl);
-            if (!string.IsNullOrEmpty(_cachedSynoToken)) getStoriesReq.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
-            var getStoriesResp = await _httpClient.SendAsync(getStoriesReq);
-            Console.WriteLine($"=== STORIES FOLDER INFO: {await getStoriesResp.Content.ReadAsStringAsync()} ===");
-
-            // Test: FileStation Upload con path de Drive
-            string urlTest = $"{_synologyBaseUrl}/webapi/entry.cgi";
-            using var reqTest = new HttpRequestMessage(HttpMethod.Post, urlTest);
-            if (!string.IsNullOrEmpty(_cachedSynoToken)) reqTest.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
-            using var contentTest = new MultipartFormDataContent("AaB03x");
-            contentTest.Add(new StringContent("SYNO.FileStation.Upload"), "api");
-            contentTest.Add(new StringContent("2"), "version");
-            contentTest.Add(new StringContent("upload"), "method");
-            contentTest.Add(new StringContent(driveFolderPath), "path");
-            contentTest.Add(new StringContent("true"), "create_parents");
-            contentTest.Add(new StringContent("true"), "overwrite");
-            contentTest.Add(new StringContent(sid), "_sid");
-            var dummyBytes = new ByteArrayContent(System.Text.Encoding.UTF8.GetBytes("test"));
-            dummyBytes.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/plain");
-            contentTest.Add(dummyBytes, "file", "test.txt");
-            reqTest.Content = contentTest;
-            var respTest = await _httpClient.SendAsync(reqTest);
-            Console.WriteLine($"=== FILESTATION UPLOAD CON DRIVE PATH: {await respTest.Content.ReadAsStringAsync()} ===");
-
-            // Upload real con Drive API
-            string url = $"{_synologyBaseUrl}/webapi/entry.cgi";
-            using var req = new HttpRequestMessage(HttpMethod.Post, url);
+            string url = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.SynologyDrive.Files&version=6&method=list&file_id={parentFileId}&_sid={sid}";
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
             if (!string.IsNullOrEmpty(_cachedSynoToken))
                 req.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
+
+            var resp = await _httpClient.SendAsync(req);
+            var raw = await resp.Content.ReadAsStringAsync();
+            Console.WriteLine($"=== LIST BY ID === parent_id: [{parentFileId}] | looking for: [{name}] | result: {raw.Substring(0, Math.Min(500, raw.Length))}... ===");
+
+            using var doc = JsonDocument.Parse(raw);
+            if (doc.RootElement.TryGetProperty("data", out var data) &&
+                data.TryGetProperty("items", out var items))
+            {
+                foreach (var item in items.EnumerateArray())
+                {
+                    var itemName = item.TryGetProperty("name", out var n) ? n.GetString() : null;
+                    if (itemName == name && item.TryGetProperty("file_id", out var fid))
+                        return fid.GetString() ?? "";
+                }
+            }
+
+            throw new Exception($"No se encontró la carpeta '{name}' en parent_id '{parentFileId}'");
+        }
+
+        // Crea la carpeta del story (guid) dentro de stories y devuelve su file_id
+        private async Task<string> EnsureStoryFolderAsync(string storyGuid, string sid)
+        {
+            // img y stories ya existen con file_ids conocidos.
+            // Solo necesitamos crear la carpeta del guid dentro de stories.
+            return await CreateFolderByIdAsync(StoriesFileId, storyGuid, sid);
+        }
+
+        public async Task<string> UploadAndShareAsync(IFormFile file, string destinationFolder, string fileName)
+        {
+            string sid = await GetSidAsync();
+
+            // destinationFolder = /CPAPPDEV/img/stories/{guid}
+            // Extraer el guid (último segmento)
+            var storyGuid = destinationFolder.TrimEnd('/').Split('/').Last();
+            Console.WriteLine($"=== STORY GUID: {storyGuid} ===");
+
+            // 1. Crear carpeta del story por file_id
+            var storyFolderFileId = await EnsureStoryFolderAsync(storyGuid, sid);
+            Console.WriteLine($"=== STORY FOLDER FILE ID: {storyFolderFileId} ===");
+
+            // 2. Subir archivo usando file_id de la carpeta destino
+            string uploadUrl = $"{_synologyBaseUrl}/webapi/entry.cgi";
+            using var uploadReq = new HttpRequestMessage(HttpMethod.Post, uploadUrl);
+            if (!string.IsNullOrEmpty(_cachedSynoToken))
+                uploadReq.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
 
             using var content = new MultipartFormDataContent("AaB03x");
             content.Add(new StringContent("SYNO.SynologyDrive.Files"), "api");
             content.Add(new StringContent("6"), "version");
             content.Add(new StringContent("upload"), "method");
-            content.Add(new StringContent(driveFolderPath), "path");
+            content.Add(new StringContent(storyFolderFileId), "file_id"); // usar file_id en lugar de path
             content.Add(new StringContent("true"), "overwrite");
             content.Add(new StringContent(sid), "_sid");
 
@@ -181,31 +168,18 @@ namespace CorrePalabras.Services
             streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
                 file.ContentType ?? "application/octet-stream");
             content.Add(streamContent, "file", fileName);
-            req.Content = content;
+            uploadReq.Content = content;
 
-            var response = await _httpClient.SendAsync(req);
-            var rawBody = await response.Content.ReadAsStringAsync();
-            Console.WriteLine($"=== DRIVE UPLOAD RESPONSE ===\nStatus: {response.StatusCode}\nFolder: {driveFolderPath}\nBody: {rawBody}\n================================");
+            var uploadResp = await _httpClient.SendAsync(uploadReq);
+            var uploadBody = await uploadResp.Content.ReadAsStringAsync();
+            Console.WriteLine($"=== DRIVE UPLOAD RESPONSE ===\nStatus: {uploadResp.StatusCode}\nBody: {uploadBody}\n================================");
 
-            var result = JsonSerializer.Deserialize<SynologyBaseResponse>(rawBody);
-            if (result == null || !result.Success)
-                throw new Exception($"Error al subir archivo a Synology Drive. Code: {result?.Error?.Code}");
+            var uploadResult = JsonSerializer.Deserialize<SynologyBaseResponse>(uploadBody);
+            if (uploadResult == null || !uploadResult.Success)
+                throw new Exception($"Error al subir archivo a Synology Drive. Code: {uploadResult?.Error?.Code}");
 
-            return $"{fileStationFolder}/{fileName}";
-        }
-
-        public async Task<string> UploadAndShareAsync(IFormFile file, string destinationFolder, string fileName)
-        {
-            string sid = await GetSidAsync();
-
-            // 1. Crear carpetas con Drive API (usa /team-folders/CPAPPDEV/...)
-            await EnsureDriveFolderHierarchyAsync(destinationFolder, sid);
-
-            // 2. Subir archivo con Drive API
-            var fileStationFilePath = await UploadViaDriveAsync(file, destinationFolder, fileName, sid);
-
-            // 3. Generar sharing link con FileStation
-            return await GenerateSharingLinkAsync(fileStationFilePath, sid);
+            // 3. Generar sharing link con FileStation usando el path original
+            return await GenerateSharingLinkAsync($"{destinationFolder}/{fileName}", sid);
         }
 
         public async Task DeleteBySharingUrlAsync(string sharingUrl)
