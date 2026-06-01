@@ -135,21 +135,22 @@ namespace CorrePalabras.Services
         {
             string sid = await GetSidAsync();
 
-            // 👇 TEMPORAL: listar por file_id
-            var filesUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.SynologyDrive.Files&version=6&method=list&file_id=953441541020491937&_sid={sid}";
-            using var filesReq = new HttpRequestMessage(HttpMethod.Get, filesUrl);
-            if (!string.IsNullOrEmpty(_cachedSynoToken)) filesReq.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
-            var filesResp = await _httpClient.SendAsync(filesReq);
-            Console.WriteLine($"=== DRIVE FILES LIST: {await filesResp.Content.ReadAsStringAsync()} ===");
+            var paths = new[] { 
+                "/team-folders/CPAPPDEV", 
+                "/mydrive", 
+                "team-folders/CPAPPDEV",
+                "/38",
+                "/"
+            };
 
-            // 👇 TEMPORAL: crear carpeta por file_id
-            var createUrl = $"{_synologyBaseUrl}/webapi/entry.cgi";
-            using var createReq = new HttpRequestMessage(HttpMethod.Post, createUrl);
-            if (!string.IsNullOrEmpty(_cachedSynoToken)) createReq.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
-            var createBody = new { api = "SYNO.SynologyDrive.Files", version = 6, method = "create_folder", file_id = "953441541020491937", name = "img-test" };
-            createReq.Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(createBody), System.Text.Encoding.UTF8, "application/json");
-            var createResp = await _httpClient.SendAsync(createReq);
-            Console.WriteLine($"=== DRIVE CREATE BY ID: {await createResp.Content.ReadAsStringAsync()} ===");
+            foreach (var testPath in paths)
+            {
+                var testUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.SynologyDrive.Files&version=6&method=list&path={Uri.EscapeDataString(testPath)}&_sid={sid}";
+                using var testReq = new HttpRequestMessage(HttpMethod.Get, testUrl);
+                if (!string.IsNullOrEmpty(_cachedSynoToken)) testReq.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
+                var testResp = await _httpClient.SendAsync(testReq);
+                Console.WriteLine($"=== DRIVE LIST [{testPath}]: {await testResp.Content.ReadAsStringAsync()} ===");
+            }
 
             // Crear la jerarquía de carpetas con la API de Drive
             await EnsureDriveFolderHierarchyAsync(destinationFolder, sid);
