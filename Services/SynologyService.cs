@@ -18,7 +18,6 @@ namespace CorrePalabras.Services
         private readonly string _username;
         private readonly string _password;
 
-        private const string StoriesFileId = "953604116253293456";
         private const string StoriesPath = "/team-folders/CPAPPDEV/img/stories";
 
         private string? _cachedSid;
@@ -72,8 +71,8 @@ namespace CorrePalabras.Services
                 req.Headers.Add("Cookie", $"did={_cachedDid}; id={_cachedSid}");
         }
 
-        // ======================= CREAR CARPETA (FileStation) =======================
-        private async Task<string> CreateFolderAsync(string parentPath, string folderName)
+        // ======================= CREAR CARPETA =======================
+        private async Task CreateFolderAsync(string parentPath, string folderName)
         {
             await EnsureValidSessionAsync();
 
@@ -98,21 +97,20 @@ namespace CorrePalabras.Services
             var resp = await _httpClient.SendAsync(req);
             var body = await resp.Content.ReadAsStringAsync();
 
-            Console.WriteLine($"[CreateFolder] Path: {parentPath} | Name: {folderName} | Response: {body}");
+            Console.WriteLine($"[CreateFolder] Path: {parentPath}/{folderName} | Response: {body}");
 
             using var doc = JsonDocument.Parse(body);
-
             if (doc.RootElement.TryGetProperty("success", out var success) && success.GetBoolean())
             {
-                // Intentamos obtener file_id si viene
-                if (doc.RootElement.TryGetProperty("data", out var data) &&
-                    data.TryGetProperty("folders", out var folders) &&
-                    folders.EnumerateArray().FirstOrDefault().TryGetProperty("file_id", out var fid))
-                {
-                    return fid.GetString() ?? "";
-                }
-                Console.WriteLine("✅ Carpeta creada (FileStation)");
-                return ""; // Se creará, usaremos path después
+                Console.WriteLine("✅ Carpeta creada correctamente (o ya existía)");
+                return;
+            }
+
+            // Si falla por que ya existe, lo ignoramos
+            if (body.Contains("\"code\":400"))
+            {
+                Console.WriteLine("ℹ️ Carpeta ya existía");
+                return;
             }
 
             throw new Exception($"Error creando carpeta: {body}");
@@ -137,7 +135,9 @@ namespace CorrePalabras.Services
             content.Add(new StringContent("true"), "create_parents");
 
             using var streamContent = new StreamContent(file.OpenReadStream());
-            streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(file.ContentType ?? "application/octet-stream");
+            streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
+                file.ContentType ?? "application/octet-stream");
+
             content.Add(streamContent, "file", fileName);
 
             req.Content = content;
@@ -145,7 +145,7 @@ namespace CorrePalabras.Services
             var resp = await _httpClient.SendAsync(req);
             var body = await resp.Content.ReadAsStringAsync();
 
-            Console.WriteLine($"[Upload] File: {fileName} | Response: {body}");
+            Console.WriteLine($"[UploadFile] {fileName} | Response: {body}");
 
             using var doc = JsonDocument.Parse(body);
             if (doc.RootElement.TryGetProperty("success", out var success) && success.GetBoolean())
@@ -154,7 +154,7 @@ namespace CorrePalabras.Services
                 return $"{targetPath}/{fileName}";
             }
 
-            throw new Exception($"Error upload: {body}");
+            throw new Exception($"Error al subir archivo: {body}");
         }
 
         // ======================= COMPARTIR =======================
@@ -176,9 +176,13 @@ namespace CorrePalabras.Services
             var result = JsonSerializer.Deserialize<SynologySharingResponse>(body);
 
             if (result?.Success == true && result.Data?.Links?.Length > 0)
-                return result.Data.Links[0].Url;
+            {
+                var shareUrl = result.Data.Links[0].Url;
+                Console.WriteLine($"✅ Share generado: {shareUrl}");
+                return shareUrl;
+            }
 
-            throw new Exception($"Error creando share: {body}");
+            throw new Exception($"No se pudo generar el enlace: {body}");
         }
 
         // ======================= MÉTODO PRINCIPAL =======================
@@ -189,19 +193,54 @@ namespace CorrePalabras.Services
             var storyGuid = destinationFolder.TrimEnd('/').Split('/').Last();
             var fullFolderPath = $"{StoriesPath}/{storyGuid}";
 
-            // Crear carpeta usando FileStation
             await CreateFolderAsync(StoriesPath, storyGuid);
-
-            // Subir archivo
             var fullFilePath = await UploadFileAsync(fullFolderPath, file, fileName);
 
-            // Generar enlace
             return await CreateShareByPathAsync(fullFilePath);
         }
 
-        // DeleteBySharingUrlAsync se mantiene igual (puedes mejorarlo después)
+        // ======================= DELETE (IMPLEMENTADO) =======================
+        public async Task DeleteBySharingUrlAsync(string sharingUrl)
+        {
+            if (string.IsNullOrEmpty(sharingUrl)) return;
 
-        #region DTOs (mantener los mismos que tenías)
+            await EnsureValidSessionAsync();
+
+            // Listar shares
+            string listUrl = $"{_synologyBaseUrl}/webapi/entry.cgi" +
+                             "?api=SYNO.FileStation.Sharing&version=3&method=list&_sid=" + _cachedSid;
+
+            using var listReq = new HttpRequestMessage(HttpMethod.Get, listUrl);
+            AddAuthHeaders(listReq);
+
+            var listResponse = await _httpClient.SendAsync(listReq);
+            var sharingData = await listResponse.Content.ReadFromJsonAsync<SynologySharingResponse>();
+
+            var link = sharingData?.Data?.Links?.FirstOrDefault(l => l.Url == sharingUrl);
+            if (link == null)
+            {
+                Console.WriteLine("⚠️ Share no encontrado para eliminar");
+                return;
+            }
+
+            // Eliminar archivo físico
+            string deleteFileUrl = $"{_synologyBaseUrl}/webapi/entry.cgi" +
+                                   "?api=SYNO.FileStation.Delete&version=2&method=delete" +
+                                   $"&path=%5B%22{Uri.EscapeDataString(link.Path)}%22%5D&recursive=true&_sid={_cachedSid}";
+
+            await _httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, deleteFileUrl) { /* auth ya en headers */ });
+
+            // Eliminar el share
+            string deleteShareUrl = $"{_synologyBaseUrl}/webapi/entry.cgi" +
+                                    "?api=SYNO.FileStation.Sharing&version=3&method=delete" +
+                                    $"&id=%5B%22{link.Id}%22%5D&_sid={_cachedSid}";
+
+            await _httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, deleteShareUrl));
+
+            Console.WriteLine($"🗑️ Share y archivo eliminados: {sharingUrl}");
+        }
+
+        #region DTOs
         public class SynologyBaseResponse
         {
             [JsonPropertyName("success")] public bool Success { get; set; }
@@ -216,6 +255,7 @@ namespace CorrePalabras.Services
         public class SynologyLoginResponse : SynologyBaseResponse
         {
             [JsonPropertyName("data")] public LoginData? Data { get; set; }
+
             public class LoginData
             {
                 [JsonPropertyName("sid")] public string Sid { get; set; } = "";
@@ -226,10 +266,12 @@ namespace CorrePalabras.Services
         public class SynologySharingResponse : SynologyBaseResponse
         {
             [JsonPropertyName("data")] public SharingData? Data { get; set; }
+
             public class SharingData
             {
                 [JsonPropertyName("links")] public SharingLink[] Links { get; set; } = Array.Empty<SharingLink>();
             }
+
             public class SharingLink
             {
                 [JsonPropertyName("id")] public string Id { get; set; } = "";
