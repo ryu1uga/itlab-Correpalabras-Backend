@@ -135,6 +135,20 @@ namespace CorrePalabras.Services
         {
             string sid = await GetSidAsync();
 
+            // 👇 TEMPORAL: ver team folders y luego Files list
+            var tfUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.SynologyDrive.TeamFolders&version=1&method=list&_sid={sid}";
+            using var tfReq = new HttpRequestMessage(HttpMethod.Get, tfUrl);
+            if (!string.IsNullOrEmpty(_cachedSynoToken)) tfReq.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
+            var tfResp = await _httpClient.SendAsync(tfReq);
+            Console.WriteLine($"=== TEAM FOLDERS: {await tfResp.Content.ReadAsStringAsync()} ===");
+
+            // 👇 TEMPORAL: listar contenido de /CPAPPDEV con Drive Files API
+            var filesUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.SynologyDrive.Files&version=6&method=list&path=%22/CPAPPDEV%22&_sid={sid}";
+            using var filesReq = new HttpRequestMessage(HttpMethod.Get, filesUrl);
+            if (!string.IsNullOrEmpty(_cachedSynoToken)) filesReq.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
+            var filesResp = await _httpClient.SendAsync(filesReq);
+            Console.WriteLine($"=== DRIVE FILES LIST: {await filesResp.Content.ReadAsStringAsync()} ===");
+
             // Crear la jerarquía de carpetas con la API de Drive
             await EnsureDriveFolderHierarchyAsync(destinationFolder, sid);
 
