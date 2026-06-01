@@ -29,16 +29,6 @@ namespace CorrePalabras.Services
             _password = Environment.GetEnvironmentVariable("SYNOLOGY_PASSWORD") ?? "";
         }
 
-        private async Task<string> ListRootFoldersAsync(string sid)
-        {
-            string url = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.List&version=2&method=list_share&_sid={sid}";
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            if (!string.IsNullOrEmpty(_cachedSynoToken))
-                request.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
-            var response = await _httpClient.SendAsync(request);
-            return await response.Content.ReadAsStringAsync();
-        }
-
         private async Task<string> GetSidAsync()
         {
             if (!string.IsNullOrEmpty(_cachedSid) && DateTime.UtcNow < _sidExpiration)
@@ -66,17 +56,13 @@ namespace CorrePalabras.Services
 
         private async Task EnsureFolderHierarchyAsync(string fullFolderPath, string sid)
         {
-            var pathsToTry = new[]
-            {
-                fullFolderPath,
-                "/team-folders" + fullFolderPath
-            };
+            // Crea cada nivel de la ruta uno por uno: /CPAPPDEV/img, luego /CPAPPDEV/img/stories, etc.
+            var parts = fullFolderPath.Trim('/').Split('/');
 
-            foreach (var path in pathsToTry)
+            for (int i = 1; i < parts.Length; i++)
             {
-                var parts = path.Trim('/').Split('/');
-                string parentPath = "/" + string.Join("/", parts[..^1]);
-                string folderName = parts[^1];
+                string parentPath = "/" + string.Join("/", parts[..i]);
+                string folderName = parts[i];
 
                 string url = $"{_synologyBaseUrl}/webapi/entry.cgi";
                 using var requestMessage = new HttpRequestMessage(HttpMethod.Post, url);
@@ -87,26 +73,24 @@ namespace CorrePalabras.Services
                 content.Add(new StringContent("create"), "method");
                 content.Add(new StringContent(parentPath), "folder_path");
                 content.Add(new StringContent(folderName), "name");
-                content.Add(new StringContent("true"), "force_parent");
+                content.Add(new StringContent("false"), "force_parent"); // no necesitamos force_parent creando nivel por nivel
                 content.Add(new StringContent(sid), "_sid");
 
                 requestMessage.Content = content;
 
-                // 👇 nuevo: agregamos el X-SYNO-TOKEN header
                 if (!string.IsNullOrEmpty(_cachedSynoToken))
                     requestMessage.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
 
                 var response = await _httpClient.SendAsync(requestMessage);
                 var raw = await response.Content.ReadAsStringAsync();
-                Console.WriteLine($"=== CREATE FOLDER === path: [{path}] | parent: [{parentPath}] | name: [{folderName}] | result: {raw}");
+                Console.WriteLine($"=== CREATE FOLDER === parent: [{parentPath}] | name: [{folderName}] | result: {raw}");
+                // Ignoramos error 105 (ya existe) — es esperado para carpetas intermedias
             }
         }
 
         public async Task<string> UploadAndShareAsync(IFormFile file, string destinationFolder, string fileName)
         {
             string sid = await GetSidAsync();
-            var rootFolders = await ListRootFoldersAsync(sid);
-            Console.WriteLine($"=== ROOT FOLDERS: {rootFolders} ===");
 
             await EnsureFolderHierarchyAsync(destinationFolder, sid);
 
