@@ -162,26 +162,27 @@ namespace CorrePalabras.Services
         {
             string sid = await GetSidAsync();
 
-            // destinationFolder = /CPAPPDEV/img/stories/{guid}
+            // destinationFolder viene como /CPAPPDEV/img/stories/{guid}
             var storyGuid = destinationFolder.TrimEnd('/').Split('/').Last();
-            Console.WriteLine($"=== STORY GUID: {storyGuid} ===");
+            Console.WriteLine($"=== STORY GUID: {storyGuid} | RUTA DESTINO: {destinationFolder} ===");
 
-            // 1. Crear carpeta del story dentro de stories (por file_id)
-            var storyFolderFileId = await CreateFolderByIdAsync(StoriesFileId, storyGuid);
-            Console.WriteLine($"=== STORY FOLDER FILE_ID: {storyFolderFileId} ===");
-
-            // 2. Subir archivo con cookies y file_id de la carpeta destino
+            // 1. Usamos directamente FileStation Upload. 
+            // Al usar 'create_parents', Synology crea el folder del GUID por nosotros automáticamente.
             string uploadUrl = $"{_synologyBaseUrl}/webapi/entry.cgi";
             using var uploadReq = new HttpRequestMessage(HttpMethod.Post, uploadUrl);
             AddAuthHeaders(uploadReq);
 
             using var content = new MultipartFormDataContent("AaB03x");
-            content.Add(new StringContent("SYNO.SynologyDrive.Files"), "api");
-            content.Add(new StringContent("6"), "version");
+            content.Add(new StringContent("SYNO.FileStation.Upload"), "api");
+            content.Add(new StringContent("2"), "version");
             content.Add(new StringContent("upload"), "method");
-            content.Add(new StringContent(storyFolderFileId), "file_id");
+            
+            // Pasamos la ruta completa
+            content.Add(new StringContent(destinationFolder), "path"); 
+            
+            // La magia: crea la subcarpeta de la historia automáticamente si no existe
+            content.Add(new StringContent("true"), "create_parents"); 
             content.Add(new StringContent("true"), "overwrite");
-            // También incluir _sid como fallback
             content.Add(new StringContent(sid), "_sid");
 
             using var stream = file.OpenReadStream();
@@ -191,18 +192,18 @@ namespace CorrePalabras.Services
             content.Add(streamContent, "file", fileName);
             uploadReq.Content = content;
 
+            // 2. Ejecutar petición de subida
             var uploadResp = await _httpClient.SendAsync(uploadReq);
             var uploadBody = await uploadResp.Content.ReadAsStringAsync();
-            Console.WriteLine($"=== DRIVE UPLOAD RESPONSE ===\nStatus: {uploadResp.StatusCode}\nBody: {uploadBody}\n================================");
+            Console.WriteLine($"=== FILESTATION UPLOAD RESPONSE ===\nStatus: {uploadResp.StatusCode}\nBody: {uploadBody}\n================================");
 
             var uploadResult = JsonSerializer.Deserialize<SynologyBaseResponse>(uploadBody);
             if (uploadResult == null || !uploadResult.Success)
-                throw new Exception($"Error al subir archivo a Synology Drive. Code: {uploadResult?.Error?.Code}");
+                throw new Exception($"Error al subir archivo a Synology FileStation. Code: {uploadResult?.Error?.Code}");
 
-            // 3. Generar sharing link con FileStation
+            // 3. Generar sharing link con FileStation (como ya lo tenías, funciona con paths)
             return await GenerateSharingLinkAsync($"{destinationFolder}/{fileName}", sid);
         }
-
         public async Task DeleteBySharingUrlAsync(string sharingUrl)
         {
             if (string.IsNullOrEmpty(sharingUrl)) return;
