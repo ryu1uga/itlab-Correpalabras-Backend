@@ -29,6 +29,16 @@ namespace CorrePalabras.Services
             _password = Environment.GetEnvironmentVariable("SYNOLOGY_PASSWORD") ?? "";
         }
 
+        private async Task<string> ListRootFoldersAsync(string sid)
+        {
+            string url = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.List&version=2&method=list_share&_sid={sid}";
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            if (!string.IsNullOrEmpty(_cachedSynoToken))
+                request.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
+            var response = await _httpClient.SendAsync(request);
+            return await response.Content.ReadAsStringAsync();
+        }
+
         private async Task<string> GetSidAsync()
         {
             if (!string.IsNullOrEmpty(_cachedSid) && DateTime.UtcNow < _sidExpiration)
@@ -95,6 +105,8 @@ namespace CorrePalabras.Services
         public async Task<string> UploadAndShareAsync(IFormFile file, string destinationFolder, string fileName)
         {
             string sid = await GetSidAsync();
+            var rootFolders = await ListRootFoldersAsync(sid);
+            Console.WriteLine($"=== ROOT FOLDERS: {rootFolders} ===");
 
             await EnsureFolderHierarchyAsync(destinationFolder, sid);
 
