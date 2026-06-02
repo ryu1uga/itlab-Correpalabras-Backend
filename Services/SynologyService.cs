@@ -180,29 +180,22 @@ namespace CorrePalabras.Services
         // ======================= UPLOAD CORREGIDO =======================
         private async Task<string> UploadFileAsync(string targetPath, IFormFile file, string fileName)
         {
-            string url = $"{_synologyBaseUrl}/webapi/entry.cgi";
-
             async Task<string> ExecuteAsync()
             {
                 await EnsureValidSessionAsync();
 
-                using var req = new HttpRequestMessage(HttpMethod.Post, url);
+                var uploadUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Upload&version=2&method=upload" +
+                                $"&path={Uri.EscapeDataString(targetPath)}" +
+                                $"&overwrite=true&create_parents=true" +
+                                $"&_sid={Uri.EscapeDataString(_cachedSid ?? string.Empty)}";
+
+                using var req = new HttpRequestMessage(HttpMethod.Post, uploadUrl);
                 AddAuthHeaders(req);
 
                 using var content = new MultipartFormDataContent();
-                content.Add(new StringContent("SYNO.FileStation.Upload"), "api");
-                content.Add(new StringContent("2"), "version");
-                content.Add(new StringContent("upload"), "method");
-                content.Add(new StringContent(targetPath), "path");
-                content.Add(new StringContent("true"), "overwrite");
-                content.Add(new StringContent("true"), "create_parents");
-                content.Add(new StringContent(_cachedSid ?? string.Empty), "_sid");
-                content.Add(new StringContent(fileName), "filename");
-
                 using var streamContent = new StreamContent(file.OpenReadStream());
                 streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
                     file.ContentType ?? "application/octet-stream");
-
                 content.Add(streamContent, "file", fileName);
 
                 await LogMultipartContentAsync(content, fileName, file.Length);
