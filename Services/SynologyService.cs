@@ -63,18 +63,49 @@ namespace CorrePalabras.Services
                          $"&passwd={Uri.EscapeDataString(_password)}" +
                          "&session=FileStation&format=xml";
 
-            var xml = await SendXmlRequestAsync(url);
-            var success = GetXmlValue(xml, "/response/success");
-            if (string.Equals(success, "true", StringComparison.OrdinalIgnoreCase))
-            {
-                _cachedSid = GetXmlValue(xml, "/response/data/sid");
-                _cachedDid = GetXmlValue(xml, "/response/data/did");
-                _sidExpiration = DateTime.UtcNow.AddHours(6);
-                Console.WriteLine("✅ [Synology] Login exitoso");
-                return;
-            }
+            var raw = await _httpClient.GetStringAsync(url);
+            Console.WriteLine($"[Login Response Raw] {raw}");
 
-            throw new Exception($"❌ Login falló: {xml.OuterXml}");
+            try
+            {
+                var xml = LoadXml(raw);
+                var success = GetXmlValue(xml, "/response/success");
+                if (string.Equals(success, "true", StringComparison.OrdinalIgnoreCase))
+                {
+                    _cachedSid = GetXmlValue(xml, "/response/data/sid");
+                    _cachedDid = GetXmlValue(xml, "/response/data/did");
+                    _sidExpiration = DateTime.UtcNow.AddHours(6);
+                    Console.WriteLine("✅ [Synology] Login exitoso");
+                    return;
+                }
+
+                throw new Exception($"❌ Login falló (XML): {xml.OuterXml}");
+            }
+            catch (Exception xmlEx)
+            {
+                Console.WriteLine($"[Login] XML parsing failed, trying JSON: {xmlEx.Message}");
+                
+                try
+                {
+                    var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                    var response = System.Text.Json.JsonSerializer.Deserialize<SynologyLoginResponse>(raw, options);
+                    
+                    if (response?.Success == true && response.Data != null)
+                    {
+                        _cachedSid = response.Data.Sid;
+                        _cachedDid = response.Data.Did;
+                        _sidExpiration = DateTime.UtcNow.AddHours(6);
+                        Console.WriteLine("✅ [Synology] Login exitoso (JSON)");
+                        return;
+                    }
+
+                    throw new Exception($"❌ Login falló (JSON): {raw}");
+                }
+                catch (Exception jsonEx)
+                {
+                    throw new Exception($"❌ Login falló (both XML and JSON): {raw}", jsonEx);
+                }
+            }
         }
 
         private bool IsAuthError(string body)
@@ -341,6 +372,29 @@ namespace CorrePalabras.Services
                 return null;
             }
         }
+
+        #region DTOs
+        public class SynologyBaseResponse
+        {
+            [System.Text.Json.Serialization.JsonPropertyName("success")] public bool Success { get; set; }
+            [System.Text.Json.Serialization.JsonPropertyName("error")] public SynologyError? Error { get; set; }
+        }
+
+        public class SynologyError
+        {
+            [System.Text.Json.Serialization.JsonPropertyName("code")] public int Code { get; set; }
+        }
+
+        public class SynologyLoginResponse : SynologyBaseResponse
+        {
+            [System.Text.Json.Serialization.JsonPropertyName("data")] public LoginData? Data { get; set; }
+            public class LoginData
+            {
+                [System.Text.Json.Serialization.JsonPropertyName("sid")] public string Sid { get; set; } = "";
+                [System.Text.Json.Serialization.JsonPropertyName("did")] public string Did { get; set; } = "";
+            }
+        }
+        #endregion
 
     }
 }
