@@ -249,7 +249,10 @@ if (!string.IsNullOrWhiteSpace(raw) && (raw.Contains("sid=") || raw.Contains("id
         {
             using var request = new HttpRequestMessage(content == null ? HttpMethod.Get : HttpMethod.Post, url);
             if (content != null)
+            {
                 request.Content = content;
+                request.Headers.ExpectContinue = false;
+            }
 
             if (request.RequestUri != null)
             {
@@ -382,8 +385,6 @@ if (!string.IsNullOrWhiteSpace(raw) && (raw.Contains("sid=") || raw.Contains("id
                 var uploadUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Upload&version=2&method=upload" +
                                 $"&path={Uri.EscapeDataString(targetPath)}" +
                                 $"&overwrite=true&create_parents=true" +
-                                (!string.IsNullOrEmpty(_cachedSid) ? $"&sid={Uri.EscapeDataString(_cachedSid)}" : string.Empty) +
-                                (!string.IsNullOrEmpty(_cachedDid) ? $"&did={Uri.EscapeDataString(_cachedDid)}" : string.Empty) +
                                 $"&format=xml";
 
                 using var content = new MultipartFormDataContent();
