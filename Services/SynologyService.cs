@@ -101,6 +101,30 @@ namespace CorrePalabras.Services
             }
         }
 
+        private async Task LogMultipartContentAsync(MultipartFormDataContent content, string uploadFileName, long uploadLength)
+        {
+            Console.WriteLine("[UploadFile] Multipart request preview:");
+            foreach (var part in content)
+            {
+                var disposition = part.Headers.ContentDisposition;
+                var name = disposition?.Name?.Trim('"') ?? "(unknown)";
+                var filename = disposition?.FileName?.Trim('"');
+                var contentType = part.Headers.ContentType?.MediaType ?? "text/plain";
+                var value = string.Empty;
+
+                if (filename is null)
+                {
+                    value = await part.ReadAsStringAsync();
+                }
+                else
+                {
+                    value = $"<file: {filename}, length={uploadLength}, type={contentType}>";
+                }
+
+                Console.WriteLine($"  part: name='{name}', filename='{filename}', type='{contentType}', value='{value}'");
+            }
+        }
+
         private async Task CreateFolderAsync(string parentPath, string folderName)
         {
             string url = $"{_synologyBaseUrl}/webapi/entry.cgi";
@@ -173,12 +197,16 @@ namespace CorrePalabras.Services
                 content.Add(new StringContent("true"), "overwrite");
                 content.Add(new StringContent("true"), "create_parents");
                 content.Add(new StringContent(_cachedSid ?? string.Empty), "_sid");
+                content.Add(new StringContent(fileName), "filename");
 
                 using var streamContent = new StreamContent(file.OpenReadStream());
                 streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
                     file.ContentType ?? "application/octet-stream");
 
                 content.Add(streamContent, "file", fileName);
+
+                await LogMultipartContentAsync(content, fileName, file.Length);
+
                 req.Content = content;
                 var resp = await _httpClient.SendAsync(req);
                 return await resp.Content.ReadAsStringAsync();
