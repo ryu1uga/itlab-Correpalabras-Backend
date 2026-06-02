@@ -186,14 +186,68 @@ namespace CorrePalabras.Services
             var response = await _httpClient.SendAsync(request);
             var raw = await response.Content.ReadAsStringAsync();
 
+            return ParseSynologyResponse(raw);
+        }
+
+        private XmlDocument ParseSynologyResponse(string raw)
+        {
             try
             {
                 return LoadXml(raw);
             }
-            catch (XmlException ex)
+            catch (XmlException)
             {
-                Console.WriteLine($"[SendXmlRequestAsync] Response not XML: {raw}");
-                throw new Exception($"Respuesta inválida de Synology: {raw}", ex);
+                try
+                {
+                    using var document = JsonDocument.Parse(raw);
+                    var xml = new XmlDocument();
+                    var root = xml.CreateElement("response");
+                    xml.AppendChild(root);
+                    PopulateXmlFromJsonElement(xml, root, document.RootElement);
+                    Console.WriteLine($"[ParseSynologyResponse] Converted JSON response to XML");
+                    return xml;
+                }
+                catch (JsonException ex)
+                {
+                    Console.WriteLine($"[ParseSynologyResponse] Response not XML or JSON: {raw}");
+                    throw new Exception($"Respuesta inválida de Synology: {raw}", ex);
+                }
+            }
+        }
+
+        private void PopulateXmlFromJsonElement(XmlDocument xml, XmlElement parent, JsonElement element)
+        {
+            switch (element.ValueKind)
+            {
+                case JsonValueKind.Object:
+                    foreach (var property in element.EnumerateObject())
+                    {
+                        var child = xml.CreateElement(property.Name);
+                        parent.AppendChild(child);
+                        PopulateXmlFromJsonElement(xml, child, property.Value);
+                    }
+                    break;
+                case JsonValueKind.Array:
+                    foreach (var item in element.EnumerateArray())
+                    {
+                        var child = xml.CreateElement("item");
+                        parent.AppendChild(child);
+                        PopulateXmlFromJsonElement(xml, child, item);
+                    }
+                    break;
+                case JsonValueKind.String:
+                    parent.InnerText = element.GetString() ?? string.Empty;
+                    break;
+                case JsonValueKind.Number:
+                    parent.InnerText = element.GetRawText();
+                    break;
+                case JsonValueKind.True:
+                case JsonValueKind.False:
+                    parent.InnerText = element.GetBoolean().ToString().ToLowerInvariant();
+                    break;
+                case JsonValueKind.Null:
+                    parent.InnerText = string.Empty;
+                    break;
             }
         }
 
