@@ -111,13 +111,18 @@ namespace CorrePalabras.Services
                         return;
                     }
 
-                    if (!string.IsNullOrWhiteSpace(raw) && raw.Contains("sid=") && raw.Contains("did="))
+if (!string.IsNullOrWhiteSpace(raw) && (raw.Contains("sid=") || raw.Contains("id=")) && raw.Contains("did="))
+                {
+                    var queryString = raw.StartsWith("?") ? raw : "?" + raw;
+                    var query = QueryHelpers.ParseQuery(queryString);
+                    _cachedSid = query["sid"].ToString();
+                    if (string.IsNullOrEmpty(_cachedSid))
                     {
-                        var queryString = raw.StartsWith("?") ? raw : "?" + raw;
-                        var query = QueryHelpers.ParseQuery(queryString);
-                        _cachedSid = query["sid"].ToString();
-                        _cachedDid = query["did"].ToString();
-                        _sidExpiration = DateTime.UtcNow.AddHours(6);
+                        _cachedSid = query["id"].ToString();
+                    }
+                    _cachedDid = query["did"].ToString();
+                    _sidExpiration = DateTime.UtcNow.AddHours(6);
+                    EnsureCookieContainerHasAuthCookies();
                         Console.WriteLine("✅ [Synology] Login exitoso (cookie-format)");
                         return;
                     }
@@ -218,6 +223,28 @@ namespace CorrePalabras.Services
             }
         }
 
+        private void EnsureCookieContainerHasAuthCookies()
+        {
+            try
+            {
+                var uri = new Uri(_synologyBaseUrl);
+                var cookies = _cookieContainer.GetCookies(uri);
+                if (cookies["id"] == null && !string.IsNullOrEmpty(_cachedSid))
+                {
+                    _cookieContainer.Add(uri, new Cookie("id", _cachedSid, "/") { HttpOnly = true });
+                }
+                if (cookies["did"] == null && !string.IsNullOrEmpty(_cachedDid))
+                {
+                    _cookieContainer.Add(uri, new Cookie("did", _cachedDid, "/") { HttpOnly = true });
+                }
+                LogCurrentCookies();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[EnsureCookieContainerHasAuthCookies] Failed: {ex.Message}");
+            }
+        }
+
         private async Task<XmlDocument> SendXmlRequestAsync(string url, HttpContent? content = null)
         {
             using var request = new HttpRequestMessage(content == null ? HttpMethod.Get : HttpMethod.Post, url);
@@ -227,12 +254,6 @@ namespace CorrePalabras.Services
             if (request.RequestUri != null)
             {
                 var cookies = _cookieContainer.GetCookies(request.RequestUri);
-                if (cookies.Count > 0 && !request.Headers.Contains("Cookie"))
-                {
-                    var cookieHeader = string.Join("; ", cookies.Cast<System.Net.Cookie>().Select(c => $"{c.Name}={c.Value}"));
-                    request.Headers.Add("Cookie", cookieHeader);
-                }
-
                 Console.WriteLine($"[SendXmlRequestAsync] Request cookies: {string.Join("; ", cookies.Cast<System.Net.Cookie>().Select(c => $"{c.Name}={c.Value}"))}");
             }
 
@@ -362,6 +383,7 @@ namespace CorrePalabras.Services
                                 $"&path={Uri.EscapeDataString(targetPath)}" +
                                 $"&overwrite=true&create_parents=true" +
                                 (!string.IsNullOrEmpty(_cachedSid) ? $"&sid={Uri.EscapeDataString(_cachedSid)}" : string.Empty) +
+                                (!string.IsNullOrEmpty(_cachedDid) ? $"&did={Uri.EscapeDataString(_cachedDid)}" : string.Empty) +
                                 $"&format=xml";
 
                 using var content = new MultipartFormDataContent();

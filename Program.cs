@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using CorrePalabras.Data;
@@ -131,7 +132,10 @@ builder.Services.AddHttpClient<ISynologyService, SynologyService>(client =>
 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
 {
     UseCookies = true,
-    CookieContainer = synologyCookieContainer
+    CookieContainer = synologyCookieContainer,
+    AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
+    AllowAutoRedirect = true,
+    UseDefaultCredentials = false
 });
 
 // Configuración de CORS - Restringida según ambiente
