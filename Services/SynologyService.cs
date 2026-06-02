@@ -23,6 +23,11 @@ namespace CorrePalabras.Services
         private string? _cachedSid;
         private string? _cachedDid;
         private DateTime _sidExpiration = DateTime.MinValue;
+        private readonly SemaphoreSlim _loginSemaphore = new(1, 1);
+        private readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web)
+        {
+            PropertyNameCaseInsensitive = true
+        };
 
         public SynologyService(HttpClient httpClient)
         {
@@ -37,7 +42,18 @@ namespace CorrePalabras.Services
             if (!string.IsNullOrEmpty(_cachedSid) && DateTime.UtcNow < _sidExpiration)
                 return;
 
-            await RefreshLoginAsync();
+            await _loginSemaphore.WaitAsync();
+            try
+            {
+                if (!string.IsNullOrEmpty(_cachedSid) && DateTime.UtcNow < _sidExpiration)
+                    return;
+
+                await RefreshLoginAsync();
+            }
+            finally
+            {
+                _loginSemaphore.Release();
+            }
         }
 
         private async Task RefreshLoginAsync()
@@ -51,7 +67,7 @@ namespace CorrePalabras.Services
                          "&session=FileStation&format=cookie";
 
             var raw = await _httpClient.GetStringAsync(url);
-            var response = JsonSerializer.Deserialize<SynologyLoginResponse>(raw);
+            var response = JsonSerializer.Deserialize<SynologyLoginResponse>(raw, _jsonOptions);
 
             if (response?.Success == true && response.Data != null)
             {
@@ -71,30 +87,53 @@ namespace CorrePalabras.Services
                 req.Headers.Add("Cookie", $"did={_cachedDid}; id={_cachedSid}");
         }
 
+        private bool IsAuthError(string body)
+        {
+            try
+            {
+                var baseResponse = JsonSerializer.Deserialize<SynologyBaseResponse>(body, _jsonOptions);
+                return baseResponse != null && !baseResponse.Success &&
+                       (baseResponse.Error?.Code == 106 || baseResponse.Error?.Code == 119);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private async Task CreateFolderAsync(string parentPath, string folderName)
         {
-            await EnsureValidSessionAsync();
-
             string url = $"{_synologyBaseUrl}/webapi/entry.cgi";
 
-            using var req = new HttpRequestMessage(HttpMethod.Post, url);
-            AddAuthHeaders(req);
-
-            var form = new Dictionary<string, string>
+            async Task<string> ExecuteAsync()
             {
-                { "api", "SYNO.FileStation.CreateFolder" },
-                { "version", "2" },
-                { "method", "create" },
-                { "folder_path", parentPath },
-                { "name", folderName },
-                { "force_parent", "true" },
-                { "_sid", _cachedSid! }
-            };
+                await EnsureValidSessionAsync();
 
-            req.Content = new FormUrlEncodedContent(form);
+                using var req = new HttpRequestMessage(HttpMethod.Post, url);
+                AddAuthHeaders(req);
 
-            var resp = await _httpClient.SendAsync(req);
-            var body = await resp.Content.ReadAsStringAsync();
+                var form = new Dictionary<string, string>
+                {
+                    { "api", "SYNO.FileStation.CreateFolder" },
+                    { "version", "2" },
+                    { "method", "create" },
+                    { "folder_path", parentPath },
+                    { "name", folderName },
+                    { "force_parent", "true" },
+                    { "_sid", _cachedSid! }
+                };
+
+                req.Content = new FormUrlEncodedContent(form);
+                var resp = await _httpClient.SendAsync(req);
+                return await resp.Content.ReadAsStringAsync();
+            }
+
+            var body = await ExecuteAsync();
+            if (IsAuthError(body))
+            {
+                await RefreshLoginAsync();
+                body = await ExecuteAsync();
+            }
 
             Console.WriteLine($"[CreateFolder] {parentPath}/{folderName} | Response: {body}");
 
@@ -117,34 +156,40 @@ namespace CorrePalabras.Services
         // ======================= UPLOAD CORREGIDO =======================
         private async Task<string> UploadFileAsync(string targetPath, IFormFile file, string fileName)
         {
-            await EnsureValidSessionAsync();
-
             string url = $"{_synologyBaseUrl}/webapi/entry.cgi";
 
-            using var req = new HttpRequestMessage(HttpMethod.Post, url);
-            AddAuthHeaders(req);
+            async Task<string> ExecuteAsync()
+            {
+                await EnsureValidSessionAsync();
 
-            using var content = new MultipartFormDataContent();
-            content.Add(new StringContent("SYNO.FileStation.Upload"), "api");
-            content.Add(new StringContent("2"), "version");
-            content.Add(new StringContent("upload"), "method");
-            content.Add(new StringContent(targetPath), "path");
-            content.Add(new StringContent("true"), "overwrite");
-            content.Add(new StringContent("true"), "create_parents");
+                using var req = new HttpRequestMessage(HttpMethod.Post, url);
+                AddAuthHeaders(req);
 
-            // Importante: Algunos Synology requieren esto
-            content.Add(new StringContent("true"), "filename");
+                using var content = new MultipartFormDataContent();
+                content.Add(new StringContent("SYNO.FileStation.Upload"), "api");
+                content.Add(new StringContent("2"), "version");
+                content.Add(new StringContent("upload"), "method");
+                content.Add(new StringContent(targetPath), "path");
+                content.Add(new StringContent("true"), "overwrite");
+                content.Add(new StringContent("true"), "create_parents");
+                content.Add(new StringContent("true"), "filename");
 
-            using var streamContent = new StreamContent(file.OpenReadStream());
-            streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
-                file.ContentType ?? "application/octet-stream");
+                using var streamContent = new StreamContent(file.OpenReadStream());
+                streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
+                    file.ContentType ?? "application/octet-stream");
 
-            content.Add(streamContent, "file", fileName);
+                content.Add(streamContent, "file", fileName);
+                req.Content = content;
+                var resp = await _httpClient.SendAsync(req);
+                return await resp.Content.ReadAsStringAsync();
+            }
 
-            req.Content = content;
-
-            var resp = await _httpClient.SendAsync(req);
-            var body = await resp.Content.ReadAsStringAsync();
+            var body = await ExecuteAsync();
+            if (IsAuthError(body))
+            {
+                await RefreshLoginAsync();
+                body = await ExecuteAsync();
+            }
 
             Console.WriteLine($"[UploadFile] {fileName} → Response: {body}");
 
@@ -160,20 +205,28 @@ namespace CorrePalabras.Services
 
         private async Task<string> CreateShareByPathAsync(string filePath)
         {
-            await EnsureValidSessionAsync();
-
             string url = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=create" +
                          $"&path=%22{Uri.EscapeDataString(filePath)}%22&_sid={_cachedSid}";
 
-            using var req = new HttpRequestMessage(HttpMethod.Get, url);
-            AddAuthHeaders(req);
+            async Task<string> ExecuteAsync()
+            {
+                await EnsureValidSessionAsync();
+                using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                AddAuthHeaders(req);
+                var resp = await _httpClient.SendAsync(req);
+                return await resp.Content.ReadAsStringAsync();
+            }
 
-            var resp = await _httpClient.SendAsync(req);
-            var body = await resp.Content.ReadAsStringAsync();
+            var body = await ExecuteAsync();
+            if (IsAuthError(body))
+            {
+                await RefreshLoginAsync();
+                body = await ExecuteAsync();
+            }
 
             Console.WriteLine($"[CreateShare] Response: {body}");
 
-            var result = JsonSerializer.Deserialize<SynologySharingResponse>(body);
+            var result = JsonSerializer.Deserialize<SynologySharingResponse>(body, _jsonOptions);
 
             if (result?.Success == true && result.Data?.Links?.Length > 0)
             {
