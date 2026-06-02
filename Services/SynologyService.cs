@@ -391,33 +391,82 @@ namespace CorrePalabras.Services
         // ======================= UPLOAD CORREGIDO =======================
         private async Task<string> UploadFileAsync(string targetPath, IFormFile file, string fileName)
         {
-            async Task<XmlDocument> ExecuteAsync()
+            // Helper to create fresh multipart content for each attempt (streams cannot be reused)
+            MultipartFormDataContent CreateContent()
+            {
+                var content = new MultipartFormDataContent();
+                var stream = new StreamContent(file.OpenReadStream());
+                stream.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
+                    file.ContentType ?? "application/octet-stream");
+                content.Add(stream, "file", fileName);
+                return content;
+            }
+
+            async Task<XmlDocument> TryUploadAsync(bool addCookieHeader)
             {
                 await EnsureValidSessionAsync();
 
                 var uploadUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Upload&version=2&method=upload" +
                                 $"&path={Uri.EscapeDataString(targetPath)}" +
                                 $"&overwrite=true&create_parents=true" +
-                                (!string.IsNullOrEmpty(_cachedSid) ? $"&sid={Uri.EscapeDataString(_cachedSid)}" : string.Empty) +
-                                (!string.IsNullOrEmpty(_cachedDid) ? $"&did={Uri.EscapeDataString(_cachedDid)}" : string.Empty) +
                                 $"&format=xml";
 
-                using var content = new MultipartFormDataContent();
-                using var streamContent = new StreamContent(file.OpenReadStream());
-                streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
-                    file.ContentType ?? "application/octet-stream");
-                content.Add(streamContent, "file", fileName);
-
+                using var content = CreateContent();
                 await LogMultipartContentAsync(content, fileName, file.Length);
 
-                return await SendXmlRequestAsync(uploadUrl, content);
+                using var request = new HttpRequestMessage(HttpMethod.Post, uploadUrl)
+                {
+                    Content = content
+                };
+
+                request.Headers.ExpectContinue = false;
+                request.Headers.UserAgent.ParseAdd("CorrePalabras/1.0");
+                try
+                {
+                    var referer = _synologyBaseUrl.TrimEnd('/') + "/drive/";
+                    request.Headers.Referrer = new Uri(referer);
+                }
+                catch { }
+
+                // Let handler send cookies by default; optionally add explicit Cookie header
+                if (addCookieHeader && request.RequestUri != null)
+                {
+                    var cookies = _cookieContainer.GetCookies(request.RequestUri);
+                    var cookieHeader = string.Join("; ", cookies.Cast<System.Net.Cookie>().Select(c => $"{c.Name}={c.Value}"));
+                    if (!string.IsNullOrWhiteSpace(cookieHeader))
+                        request.Headers.TryAddWithoutValidation("Cookie", cookieHeader);
+                }
+
+                Console.WriteLine($"[TryUpload] Sending upload. addCookieHeader={addCookieHeader}");
+                Console.WriteLine($"[TryUpload] Request URL: {uploadUrl}");
+                if (request.Headers.Contains("Cookie"))
+                {
+                    var headers = string.Join("; ", request.Headers.GetValues("Cookie"));
+                    Console.WriteLine($"[TryUpload] Cookie header sent: {headers}");
+                }
+
+                var response = await _httpClient.SendAsync(request);
+                var raw = await response.Content.ReadAsStringAsync();
+
+                Console.WriteLine($"[TryUpload] Response status: {(int)response.StatusCode} {response.ReasonPhrase}");
+                foreach (var h in response.Headers)
+                {
+                    Console.WriteLine($"[TryUpload] Resp header: {h.Key}={string.Join(',', h.Value)}");
+                }
+                Console.WriteLine($"[TryUpload] Raw body: {raw}");
+
+                return ParseSynologyResponse(raw);
             }
 
-            var xml = await ExecuteAsync();
-            if (IsAuthError(xml.OuterXml))
+            // First try without forcing Cookie header (let handler manage it)
+            var xml = await TryUploadAsync(addCookieHeader: false);
+
+            // If auth error or explicit 401, try refresh login once and retry with explicit cookie header
+            if (IsAuthError(xml.OuterXml) || GetXmlValue(xml, "/response/error/code") == "401")
             {
+                Console.WriteLine("[UploadFile] Auth error detected, refreshing login and retrying with explicit cookie header.");
                 await RefreshLoginAsync();
-                xml = await ExecuteAsync();
+                xml = await TryUploadAsync(addCookieHeader: true);
             }
 
             Console.WriteLine($"[UploadFile] {fileName} → Response: {xml.OuterXml}");
@@ -426,11 +475,6 @@ namespace CorrePalabras.Services
             {
                 Console.WriteLine("✅ Archivo subido correctamente");
                 return $"{targetPath}/{fileName}";
-            }
-
-            if (GetXmlValue(xml, "/response/error/code") == "101")
-            {
-                Console.WriteLine("⚠️ Upload returned 101 - unauthorized or redirect required");
             }
 
             throw new Exception($"Error al subir archivo: {xml.OuterXml}");
