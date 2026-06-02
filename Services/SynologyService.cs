@@ -224,9 +224,16 @@ namespace CorrePalabras.Services
             if (content != null)
                 request.Content = content;
 
-            if (request.Headers.TryGetValues("Cookie", out var cookieHeaders))
+            if (request.RequestUri != null)
             {
-                Console.WriteLine($"[SendXmlRequestAsync] Request cookies: {string.Join("; ", cookieHeaders)}");
+                var cookies = _cookieContainer.GetCookies(request.RequestUri);
+                if (cookies.Count > 0 && !request.Headers.Contains("Cookie"))
+                {
+                    var cookieHeader = string.Join("; ", cookies.Cast<System.Net.Cookie>().Select(c => $"{c.Name}={c.Value}"));
+                    request.Headers.Add("Cookie", cookieHeader);
+                }
+
+                Console.WriteLine($"[SendXmlRequestAsync] Request cookies: {string.Join("; ", cookies.Cast<System.Net.Cookie>().Select(c => $"{c.Name}={c.Value}"))}");
             }
 
             var response = await _httpClient.SendAsync(request);
@@ -354,6 +361,7 @@ namespace CorrePalabras.Services
                 var uploadUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Upload&version=2&method=upload" +
                                 $"&path={Uri.EscapeDataString(targetPath)}" +
                                 $"&overwrite=true&create_parents=true" +
+                                (!string.IsNullOrEmpty(_cachedSid) ? $"&sid={Uri.EscapeDataString(_cachedSid)}" : string.Empty) +
                                 $"&format=xml";
 
                 using var content = new MultipartFormDataContent();
