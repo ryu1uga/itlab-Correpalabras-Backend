@@ -124,6 +124,11 @@ builder.Services.AddScoped<IHealthCheckService, HealthCheckService>();
 builder.Services.AddHttpClient<ISynologyService, SynologyService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(30);
+})
+.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+{
+    UseCookies = true,
+    CookieContainer = new System.Net.CookieContainer()
 });
 
 // Configuración de CORS - Restringida según ambiente

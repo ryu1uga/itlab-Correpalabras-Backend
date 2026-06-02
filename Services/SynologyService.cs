@@ -81,12 +81,6 @@ namespace CorrePalabras.Services
             throw new Exception($"❌ Login falló: {raw}");
         }
 
-        private void AddAuthHeaders(HttpRequestMessage req)
-        {
-            if (!string.IsNullOrEmpty(_cachedDid) && !string.IsNullOrEmpty(_cachedSid))
-                req.Headers.Add("Cookie", $"did={_cachedDid}; id={_cachedSid}");
-        }
-
         private bool IsAuthError(string body)
         {
             try
@@ -134,7 +128,6 @@ namespace CorrePalabras.Services
                 await EnsureValidSessionAsync();
 
                 using var req = new HttpRequestMessage(HttpMethod.Post, url);
-                AddAuthHeaders(req);
 
                 var form = new Dictionary<string, string>
                 {
@@ -191,7 +184,6 @@ namespace CorrePalabras.Services
                                 $"&_sid={Uri.EscapeDataString(_cachedSid ?? string.Empty)}";
 
                 using var req = new HttpRequestMessage(HttpMethod.Post, uploadUrl);
-                AddAuthHeaders(req);
 
                 using var content = new MultipartFormDataContent();
                 using var streamContent = new StreamContent(file.OpenReadStream());
@@ -234,7 +226,6 @@ namespace CorrePalabras.Services
             {
                 await EnsureValidSessionAsync();
                 using var req = new HttpRequestMessage(HttpMethod.Get, url);
-                AddAuthHeaders(req);
                 var resp = await _httpClient.SendAsync(req);
                 return await resp.Content.ReadAsStringAsync();
             }
