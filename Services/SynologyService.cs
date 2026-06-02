@@ -122,6 +122,19 @@ namespace CorrePalabras.Services
             }
             catch
             {
+                try
+                {
+                    using var document = JsonDocument.Parse(body);
+                    if (document.RootElement.TryGetProperty("error", out var errorElement) &&
+                        errorElement.TryGetProperty("code", out var codeElement) &&
+                        codeElement.TryGetInt32(out var code))
+                    {
+                        return code == 106 || code == 119;
+                    }
+                }
+                catch
+                {
+                }
             }
 
             return false;
@@ -172,7 +185,16 @@ namespace CorrePalabras.Services
 
             var response = await _httpClient.SendAsync(request);
             var raw = await response.Content.ReadAsStringAsync();
-            return LoadXml(raw);
+
+            try
+            {
+                return LoadXml(raw);
+            }
+            catch (XmlException ex)
+            {
+                Console.WriteLine($"[SendXmlRequestAsync] Response not XML: {raw}");
+                throw new Exception($"Respuesta inválida de Synology: {raw}", ex);
+            }
         }
 
         private async Task<byte[]> DownloadRawAsync(string url)
@@ -266,7 +288,7 @@ namespace CorrePalabras.Services
         private async Task<string> CreateShareByPathAsync(string filePath)
         {
             string url = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=create" +
-                         $"&path=%22{Uri.EscapeDataString(filePath)}%22" +
+                         $"&path={Uri.EscapeDataString($"[\"{filePath.Replace("\"", "\\\"")}\"]")}" +
                          $"&format=xml";
 
             async Task<XmlDocument> ExecuteAsync()
