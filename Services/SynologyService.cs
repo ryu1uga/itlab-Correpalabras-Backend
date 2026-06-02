@@ -87,6 +87,7 @@ namespace CorrePalabras.Services
                     _cachedSid = GetXmlValue(xml, "/response/data/sid");
                     _cachedDid = GetXmlValue(xml, "/response/data/did");
                     _sidExpiration = DateTime.UtcNow.AddHours(6);
+                    EnsureCookieContainerHasAuthCookies();
                     Console.WriteLine("✅ [Synology] Login exitoso");
                     return;
                 }
@@ -107,22 +108,23 @@ namespace CorrePalabras.Services
                         _cachedSid = responseData.Data.Sid;
                         _cachedDid = responseData.Data.Did;
                         _sidExpiration = DateTime.UtcNow.AddHours(6);
+                        EnsureCookieContainerHasAuthCookies();
                         Console.WriteLine("✅ [Synology] Login exitoso (JSON)");
                         return;
                     }
 
-if (!string.IsNullOrWhiteSpace(raw) && (raw.Contains("sid=") || raw.Contains("id=")) && raw.Contains("did="))
-                {
-                    var queryString = raw.StartsWith("?") ? raw : "?" + raw;
-                    var query = QueryHelpers.ParseQuery(queryString);
-                    _cachedSid = query["sid"].ToString();
-                    if (string.IsNullOrEmpty(_cachedSid))
+                    if (!string.IsNullOrWhiteSpace(raw) && (raw.Contains("sid=") || raw.Contains("id=")) && raw.Contains("did="))
                     {
-                        _cachedSid = query["id"].ToString();
-                    }
-                    _cachedDid = query["did"].ToString();
-                    _sidExpiration = DateTime.UtcNow.AddHours(6);
-                    EnsureCookieContainerHasAuthCookies();
+                        var queryString = raw.StartsWith("?") ? raw : "?" + raw;
+                        var query = QueryHelpers.ParseQuery(queryString);
+                        _cachedSid = query["sid"].ToString();
+                        if (string.IsNullOrEmpty(_cachedSid))
+                        {
+                            _cachedSid = query["id"].ToString();
+                        }
+                        _cachedDid = query["did"].ToString();
+                        _sidExpiration = DateTime.UtcNow.AddHours(6);
+                        EnsureCookieContainerHasAuthCookies();
                         Console.WriteLine("✅ [Synology] Login exitoso (cookie-format)");
                         return;
                     }
@@ -257,7 +259,18 @@ if (!string.IsNullOrWhiteSpace(raw) && (raw.Contains("sid=") || raw.Contains("id
             if (request.RequestUri != null)
             {
                 var cookies = _cookieContainer.GetCookies(request.RequestUri);
-                Console.WriteLine($"[SendXmlRequestAsync] Request cookies: {string.Join("; ", cookies.Cast<System.Net.Cookie>().Select(c => $"{c.Name}={c.Value}"))}");
+                var cookieHeader = string.Join("; ", cookies.Cast<System.Net.Cookie>().Select(c => $"{c.Name}={c.Value}"));
+                if (!string.IsNullOrWhiteSpace(cookieHeader) && !request.Headers.Contains("Cookie"))
+                {
+                    request.Headers.TryAddWithoutValidation("Cookie", cookieHeader);
+                }
+
+                Console.WriteLine($"[SendXmlRequestAsync] Request cookies: {cookieHeader}");
+                if (request.Headers.Contains("Cookie"))
+                {
+                    var headers = string.Join("; ", request.Headers.GetValues("Cookie"));
+                    Console.WriteLine($"[SendXmlRequestAsync] Cookie header sent: {headers}");
+                }
             }
 
             var response = await _httpClient.SendAsync(request);
@@ -385,6 +398,8 @@ if (!string.IsNullOrWhiteSpace(raw) && (raw.Contains("sid=") || raw.Contains("id
                 var uploadUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Upload&version=2&method=upload" +
                                 $"&path={Uri.EscapeDataString(targetPath)}" +
                                 $"&overwrite=true&create_parents=true" +
+                                (!string.IsNullOrEmpty(_cachedSid) ? $"&sid={Uri.EscapeDataString(_cachedSid)}" : string.Empty) +
+                                (!string.IsNullOrEmpty(_cachedDid) ? $"&did={Uri.EscapeDataString(_cachedDid)}" : string.Empty) +
                                 $"&format=xml";
 
                 using var content = new MultipartFormDataContent();
@@ -411,6 +426,11 @@ if (!string.IsNullOrWhiteSpace(raw) && (raw.Contains("sid=") || raw.Contains("id
             {
                 Console.WriteLine("✅ Archivo subido correctamente");
                 return $"{targetPath}/{fileName}";
+            }
+
+            if (GetXmlValue(xml, "/response/error/code") == "101")
+            {
+                Console.WriteLine("⚠️ Upload returned 101 - unauthorized or redirect required");
             }
 
             throw new Exception($"Error al subir archivo: {xml.OuterXml}");
