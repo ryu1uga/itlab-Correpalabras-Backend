@@ -1,617 +1,285 @@
 using CorrePalabras.Services.Interfaces;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.WebUtilities;
 using System;
-using System.Collections.Generic;
+using System.IO;
 using System.Linq;
-using System.Net;
 using System.Net.Http;
+using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
-using System.Xml;
 
 namespace CorrePalabras.Services
 {
     public class SynologyService : ISynologyService
     {
         private readonly HttpClient _httpClient;
-        private readonly CookieContainer _cookieContainer;
         private readonly string _synologyBaseUrl;
         private readonly string _username;
         private readonly string _password;
 
-        private const string StoriesPath = "/CPAPPDEV/img/stories";
+        // file_id conocido de /team-folders/CPAPPDEV/img/stories
+        private const string StoriesFileId = "953604116253293456";
 
         private string? _cachedSid;
         private string? _cachedDid;
+        private string? _cachedSynoToken;
         private DateTime _sidExpiration = DateTime.MinValue;
-        private readonly SemaphoreSlim _loginSemaphore = new(1, 1);
 
-        public SynologyService(HttpClient httpClient, CookieContainer cookieContainer)
+        public SynologyService(HttpClient httpClient)
         {
             _httpClient = httpClient;
-            _cookieContainer = cookieContainer;
             _synologyBaseUrl = Environment.GetEnvironmentVariable("SYNOLOGY_BASE_URL") ?? "http://localhost:5000";
             _username = Environment.GetEnvironmentVariable("SYNOLOGY_USERNAME") ?? "";
             _password = Environment.GetEnvironmentVariable("SYNOLOGY_PASSWORD") ?? "";
         }
 
-        private async Task EnsureValidSessionAsync()
+        private async Task<string> GetSidAsync()
         {
             if (!string.IsNullOrEmpty(_cachedSid) && DateTime.UtcNow < _sidExpiration)
-                return;
-
-            await _loginSemaphore.WaitAsync();
-            try
-            {
-                if (!string.IsNullOrEmpty(_cachedSid) && DateTime.UtcNow < _sidExpiration)
-                    return;
-
-                await RefreshLoginAsync();
-            }
-            finally
-            {
-                _loginSemaphore.Release();
-            }
-        }
-
-        private async Task RefreshLoginAsync()
-        {
-            _cachedSid = _cachedDid = null;
-            _sidExpiration = DateTime.MinValue;
+                return _cachedSid;
 
             string url = $"{_synologyBaseUrl}/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login" +
-                         $"&account={Uri.EscapeDataString(_username)}" +
-                         $"&passwd={Uri.EscapeDataString(_password)}" +
-                         "&session=FileStation&format=cookie";
+                         $"&account={Uri.EscapeDataString(_username)}&passwd={Uri.EscapeDataString(_password)}" +
+                         $"&session=FileStation&format=cookie&enable_syno_token=yes";
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            var response = await _httpClient.SendAsync(request);
-            var raw = await response.Content.ReadAsStringAsync();
+            var rawResponse = await _httpClient.GetStringAsync(url);
+            Console.WriteLine($"=== AUTH BODY: {rawResponse} ===");
 
-            if (response.Headers.TryGetValues("Set-Cookie", out var setCookies))
+            var response = JsonSerializer.Deserialize<SynologyLoginResponse>(rawResponse);
+
+            if (response != null && response.Success && response.Data != null)
             {
-                Console.WriteLine($"[Login] Set-Cookie: {string.Join("; ", setCookies)}");
+                _cachedSid = response.Data.Sid;
+                _cachedDid = response.Data.Did;
+                _cachedSynoToken = response.Data.SynoToken;
+                _sidExpiration = DateTime.UtcNow.AddHours(6);
+                return _cachedSid;
             }
 
-            LogCurrentCookies();
-            Console.WriteLine($"[Login Response Raw] {raw}");
-
-            try
-            {
-                var xml = LoadXml(raw);
-                var success = GetXmlValue(xml, "/response/success");
-                if (string.Equals(success, "true", StringComparison.OrdinalIgnoreCase))
-                {
-                    _cachedSid = GetXmlValue(xml, "/response/data/sid");
-                    _cachedDid = GetXmlValue(xml, "/response/data/did");
-                    _sidExpiration = DateTime.UtcNow.AddHours(6);
-                    EnsureCookieContainerHasAuthCookies();
-                    Console.WriteLine("✅ [Synology] Login exitoso");
-                    return;
-                }
-
-                throw new Exception($"❌ Login falló (XML): {xml.OuterXml}");
-            }
-            catch (Exception xmlEx)
-            {
-                Console.WriteLine($"[Login] XML parsing failed, trying JSON: {xmlEx.Message}");
-
-                try
-                {
-                    var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                    var responseData = JsonSerializer.Deserialize<SynologyLoginResponse>(raw, options);
-
-                    if (responseData?.Success == true && responseData.Data != null)
-                    {
-                        _cachedSid = responseData.Data.Sid;
-                        _cachedDid = responseData.Data.Did;
-                        _sidExpiration = DateTime.UtcNow.AddHours(6);
-                        EnsureCookieContainerHasAuthCookies();
-                        Console.WriteLine("✅ [Synology] Login exitoso (JSON)");
-                        return;
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(raw) && (raw.Contains("sid=") || raw.Contains("id=")) && raw.Contains("did="))
-                    {
-                        var queryString = raw.StartsWith("?") ? raw : "?" + raw;
-                        var query = QueryHelpers.ParseQuery(queryString);
-                        _cachedSid = query["sid"].ToString();
-                        if (string.IsNullOrEmpty(_cachedSid))
-                        {
-                            _cachedSid = query["id"].ToString();
-                        }
-                        _cachedDid = query["did"].ToString();
-                        _sidExpiration = DateTime.UtcNow.AddHours(6);
-                        EnsureCookieContainerHasAuthCookies();
-                        Console.WriteLine("✅ [Synology] Login exitoso (cookie-format)");
-                        return;
-                    }
-
-                    throw new Exception($"❌ Login falló (JSON): {raw}");
-                }
-                catch (Exception jsonEx)
-                {
-                    throw new Exception($"❌ Login falló (both XML and JSON): {raw}", jsonEx);
-                }
-            }
+            throw new Exception($"Error de autenticación Synology. Código: {response?.Error?.Code}. Raw: {rawResponse}");
         }
 
-        private bool IsAuthError(string body)
+        private void AddAuthHeaders(HttpRequestMessage req)
         {
-            try
-            {
-                var xml = LoadXml(body);
-                var successValue = GetXmlValue(xml, "/response/success");
-                if (!string.Equals(successValue, "true", StringComparison.OrdinalIgnoreCase))
-                {
-                    var code = GetXmlValue(xml, "/response/error/code");
-                    return code == "106" || code == "119";
-                }
-            }
-            catch
-            {
-                try
-                {
-                    using var document = JsonDocument.Parse(body);
-                    if (document.RootElement.TryGetProperty("error", out var errorElement) &&
-                        errorElement.TryGetProperty("code", out var codeElement) &&
-                        codeElement.TryGetInt32(out var code))
-                    {
-                        return code == 106 || code == 119;
-                    }
-                }
-                catch
-                {
-                }
-            }
+            if (!string.IsNullOrEmpty(_cachedDid) && !string.IsNullOrEmpty(_cachedSid))
+                req.Headers.Add("Cookie", $"did={_cachedDid}; id={_cachedSid}");
 
-            return false;
+            if (!string.IsNullOrEmpty(_cachedSynoToken))
+                req.Headers.Add("X-SYNO-TOKEN", _cachedSynoToken);
         }
 
-        private async Task LogMultipartContentAsync(MultipartFormDataContent content, string uploadFileName, long uploadLength)
+        // Crea carpeta por file_id del parent (Drive API)
+        private async Task<string> CreateFolderByIdAsync(string parentFileId, string folderName)
         {
-            Console.WriteLine("[UploadFile] Multipart request preview:");
-            foreach (var part in content)
+            string url = $"{_synologyBaseUrl}/webapi/entry.cgi";
+            using var req = new HttpRequestMessage(HttpMethod.Post, url);
+            AddAuthHeaders(req);
+
+            var body = new
             {
-                var disposition = part.Headers.ContentDisposition;
-                var name = disposition?.Name?.Trim('"') ?? "(unknown)";
-                var filename = disposition?.FileName?.Trim('"');
-                var contentType = part.Headers.ContentType?.MediaType ?? "text/plain";
-                var value = string.Empty;
+                api = "SYNO.SynologyDrive.Files",
+                version = 6,
+                method = "create_folder",
+                file_id = parentFileId,
+                name = folderName
+            };
 
-                if (filename is null)
-                {
-                    value = await part.ReadAsStringAsync();
-                }
-                else
-                {
-                    value = $"<file: {filename}, length={uploadLength}, type={contentType}>";
-                }
+            req.Content = new StringContent(
+                JsonSerializer.Serialize(body),
+                System.Text.Encoding.UTF8,
+                "application/json"
+            );
 
-                Console.WriteLine($"  part: name='{name}', filename='{filename}', type='{contentType}', value='{value}'");
+            var resp = await _httpClient.SendAsync(req);
+            var raw = await resp.Content.ReadAsStringAsync();
+            Console.WriteLine($"=== CREATE FOLDER BY ID === parent_id: [{parentFileId}] | name: [{folderName}] | result: {raw}");
+
+            using var doc = JsonDocument.Parse(raw);
+            if (doc.RootElement.TryGetProperty("success", out var success) && success.GetBoolean())
+            {
+                if (doc.RootElement.TryGetProperty("data", out var data) &&
+                    data.TryGetProperty("file_id", out var fid))
+                    return fid.GetString() ?? "";
             }
+
+            // Si ya existe, buscarlo por nombre en el parent
+            return await GetFileIdByNameInPathAsync("/team-folders/CPAPPDEV/img/stories", folderName);
         }
 
-        private XmlDocument LoadXml(string raw)
+        private async Task<string> GetFileIdByNameInPathAsync(string parentPath, string name)
         {
-            var xml = new XmlDocument();
-            xml.LoadXml(raw);
-            return xml;
-        }
+            string url = $"{_synologyBaseUrl}/webapi/entry.cgi" +
+                         $"?api=SYNO.SynologyDrive.Files&version=6&method=list" +
+                         $"&path={Uri.EscapeDataString(parentPath)}";
 
-        private string? GetXmlValue(XmlDocument xml, string xpath)
-        {
-            var node = xml.SelectSingleNode(xpath);
-            return node?.InnerText;
-        }
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            AddAuthHeaders(req);
 
-        private void LogCurrentCookies()
-        {
-            try
+            var resp = await _httpClient.SendAsync(req);
+            var raw = await resp.Content.ReadAsStringAsync();
+            Console.WriteLine($"=== LIST PATH === path: [{parentPath}] | looking for: [{name}] | result: {raw.Substring(0, Math.Min(500, raw.Length))}... ===");
+
+            using var doc = JsonDocument.Parse(raw);
+            if (doc.RootElement.TryGetProperty("data", out var data) &&
+                data.TryGetProperty("items", out var items))
             {
-                var uri = new Uri(_synologyBaseUrl);
-                var cookies = _cookieContainer.GetCookies(uri);
-                Console.WriteLine($"[CookieContainer] {uri.Host} cookies: {cookies.Count}");
-                foreach (System.Net.Cookie cookie in cookies)
+                foreach (var item in items.EnumerateArray())
                 {
-                    Console.WriteLine($"  cookie: {cookie.Name}={cookie.Value}; path={cookie.Path}; expires={cookie.Expires}");
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[CookieContainer] Failed to log cookies: {ex.Message}");
-            }
-        }
-
-        private void EnsureCookieContainerHasAuthCookies()
-        {
-            try
-            {
-                var uri = new Uri(_synologyBaseUrl);
-                var cookies = _cookieContainer.GetCookies(uri);
-                if (cookies["id"] == null && !string.IsNullOrEmpty(_cachedSid))
-                {
-                    _cookieContainer.Add(uri, new Cookie("id", _cachedSid, "/") { HttpOnly = true });
-                }
-                if (cookies["did"] == null && !string.IsNullOrEmpty(_cachedDid))
-                {
-                    _cookieContainer.Add(uri, new Cookie("did", _cachedDid, "/") { HttpOnly = true });
-                }
-                LogCurrentCookies();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[EnsureCookieContainerHasAuthCookies] Failed: {ex.Message}");
-            }
-        }
-
-        private async Task<XmlDocument> SendXmlRequestAsync(string url, HttpContent? content = null)
-        {
-            using var request = new HttpRequestMessage(content == null ? HttpMethod.Get : HttpMethod.Post, url);
-            if (content != null)
-            {
-                request.Content = content;
-                request.Headers.ExpectContinue = false;
-            }
-
-            if (request.RequestUri != null)
-            {
-                var cookies = _cookieContainer.GetCookies(request.RequestUri);
-                var cookieHeader = string.Join("; ", cookies.Cast<System.Net.Cookie>().Select(c => $"{c.Name}={c.Value}"));
-                if (!string.IsNullOrWhiteSpace(cookieHeader) && !request.Headers.Contains("Cookie"))
-                {
-                    request.Headers.TryAddWithoutValidation("Cookie", cookieHeader);
-                }
-
-                Console.WriteLine($"[SendXmlRequestAsync] Request cookies: {cookieHeader}");
-                if (request.Headers.Contains("Cookie"))
-                {
-                    var headers = string.Join("; ", request.Headers.GetValues("Cookie"));
-                    Console.WriteLine($"[SendXmlRequestAsync] Cookie header sent: {headers}");
+                    var itemName = item.TryGetProperty("name", out var n) ? n.GetString() : null;
+                    if (itemName == name && item.TryGetProperty("file_id", out var fid))
+                        return fid.GetString() ?? "";
                 }
             }
 
-            var response = await _httpClient.SendAsync(request);
-            var raw = await response.Content.ReadAsStringAsync();
-
-            Console.WriteLine($"[SendXmlRequestAsync] {request.Method} {url} -> {response.StatusCode}");
-            return ParseSynologyResponse(raw);
-        }
-
-        private XmlDocument ParseSynologyResponse(string raw)
-        {
-            try
-            {
-                return LoadXml(raw);
-            }
-            catch (XmlException)
-            {
-                try
-                {
-                    using var document = JsonDocument.Parse(raw);
-                    var xml = new XmlDocument();
-                    var root = xml.CreateElement("response");
-                    xml.AppendChild(root);
-                    PopulateXmlFromJsonElement(xml, root, document.RootElement);
-                    Console.WriteLine($"[ParseSynologyResponse] Converted JSON response to XML");
-                    return xml;
-                }
-                catch (JsonException ex)
-                {
-                    Console.WriteLine($"[ParseSynologyResponse] Response not XML or JSON: {raw}");
-                    throw new Exception($"Respuesta inválida de Synology: {raw}", ex);
-                }
-            }
-        }
-
-        private void PopulateXmlFromJsonElement(XmlDocument xml, XmlElement parent, JsonElement element)
-        {
-            switch (element.ValueKind)
-            {
-                case JsonValueKind.Object:
-                    foreach (var property in element.EnumerateObject())
-                    {
-                        var child = xml.CreateElement(property.Name);
-                        parent.AppendChild(child);
-                        PopulateXmlFromJsonElement(xml, child, property.Value);
-                    }
-                    break;
-                case JsonValueKind.Array:
-                    foreach (var item in element.EnumerateArray())
-                    {
-                        var child = xml.CreateElement("item");
-                        parent.AppendChild(child);
-                        PopulateXmlFromJsonElement(xml, child, item);
-                    }
-                    break;
-                case JsonValueKind.String:
-                    parent.InnerText = element.GetString() ?? string.Empty;
-                    break;
-                case JsonValueKind.Number:
-                    parent.InnerText = element.GetRawText();
-                    break;
-                case JsonValueKind.True:
-                case JsonValueKind.False:
-                    parent.InnerText = element.GetBoolean().ToString().ToLowerInvariant();
-                    break;
-                case JsonValueKind.Null:
-                    parent.InnerText = string.Empty;
-                    break;
-            }
-        }
-
-        private async Task<byte[]> DownloadRawAsync(string url)
-        {
-            var response = await _httpClient.GetAsync(url);
-            response.EnsureSuccessStatusCode();
-            return await response.Content.ReadAsByteArrayAsync();
-        }
-
-        private async Task CreateFolderAsync(string parentPath, string folderName)
-        {
-            string url = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.CreateFolder&version=2&method=create" +
-                         $"&folder_path={Uri.EscapeDataString(parentPath)}" +
-                         $"&name={Uri.EscapeDataString(folderName)}" +
-                         $"&force_parent=true" +
-                         $"&format=xml";
-
-            async Task<XmlDocument> ExecuteAsync()
-            {
-                await EnsureValidSessionAsync();
-                return await SendXmlRequestAsync(url);
-            }
-
-            var xml = await ExecuteAsync();
-            if (IsAuthError(xml.OuterXml))
-            {
-                await RefreshLoginAsync();
-                xml = await ExecuteAsync();
-            }
-
-            Console.WriteLine($"[CreateFolder] {parentPath}/{folderName} | Response: {xml.OuterXml}");
-
-            if (GetXmlValue(xml, "/response/success") == "true")
-            {
-                Console.WriteLine("✅ Carpeta creada");
-                return;
-            }
-
-            var code = GetXmlValue(xml, "/response/error/code");
-            if (code == "400")
-            {
-                Console.WriteLine("ℹ️ Carpeta ya existía");
-                return;
-            }
-
-            throw new Exception($"Error creando carpeta: {xml.OuterXml}");
-        }
-
-        // ======================= UPLOAD CORREGIDO =======================
-        private async Task<string> UploadFileAsync(string targetPath, IFormFile file, string fileName)
-        {
-            // Helper to create fresh multipart content for each attempt (streams cannot be reused)
-            MultipartFormDataContent CreateContent()
-            {
-                var content = new MultipartFormDataContent();
-                var stream = new StreamContent(file.OpenReadStream());
-                stream.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
-                    file.ContentType ?? "application/octet-stream");
-                content.Add(stream, "file", fileName);
-                return content;
-            }
-
-            async Task<XmlDocument> TryUploadAsync(bool addCookieHeader)
-            {
-                await EnsureValidSessionAsync();
-
-                var uploadUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Upload&version=2&method=upload" +
-                                $"&path={Uri.EscapeDataString(targetPath)}" +
-                                $"&overwrite=true&create_parents=true" +
-                                $"&format=xml";
-
-                using var content = CreateContent();
-                await LogMultipartContentAsync(content, fileName, file.Length);
-
-                using var request = new HttpRequestMessage(HttpMethod.Post, uploadUrl)
-                {
-                    Content = content
-                };
-
-                request.Headers.ExpectContinue = false;
-                request.Headers.UserAgent.ParseAdd("CorrePalabras/1.0");
-                try
-                {
-                    var referer = _synologyBaseUrl.TrimEnd('/') + "/drive/";
-                    request.Headers.Referrer = new Uri(referer);
-                }
-                catch { }
-
-                // Let handler send cookies by default; optionally add explicit Cookie header
-                if (addCookieHeader && request.RequestUri != null)
-                {
-                    var cookies = _cookieContainer.GetCookies(request.RequestUri);
-                    var cookieHeader = string.Join("; ", cookies.Cast<System.Net.Cookie>().Select(c => $"{c.Name}={c.Value}"));
-                    if (!string.IsNullOrWhiteSpace(cookieHeader))
-                        request.Headers.TryAddWithoutValidation("Cookie", cookieHeader);
-                }
-
-                Console.WriteLine($"[TryUpload] Sending upload. addCookieHeader={addCookieHeader}");
-                Console.WriteLine($"[TryUpload] Request URL: {uploadUrl}");
-                if (request.Headers.Contains("Cookie"))
-                {
-                    var headers = string.Join("; ", request.Headers.GetValues("Cookie"));
-                    Console.WriteLine($"[TryUpload] Cookie header sent: {headers}");
-                }
-
-                var response = await _httpClient.SendAsync(request);
-                var raw = await response.Content.ReadAsStringAsync();
-
-                Console.WriteLine($"[TryUpload] Response status: {(int)response.StatusCode} {response.ReasonPhrase}");
-                foreach (var h in response.Headers)
-                {
-                    Console.WriteLine($"[TryUpload] Resp header: {h.Key}={string.Join(',', h.Value)}");
-                }
-                Console.WriteLine($"[TryUpload] Raw body: {raw}");
-
-                return ParseSynologyResponse(raw);
-            }
-
-            // First try without forcing Cookie header (let handler manage it)
-            var xml = await TryUploadAsync(addCookieHeader: false);
-
-            // If auth error or explicit 401, try refresh login once and retry with explicit cookie header
-            if (IsAuthError(xml.OuterXml) || GetXmlValue(xml, "/response/error/code") == "401")
-            {
-                Console.WriteLine("[UploadFile] Auth error detected, refreshing login and retrying with explicit cookie header.");
-                await RefreshLoginAsync();
-                xml = await TryUploadAsync(addCookieHeader: true);
-            }
-
-            Console.WriteLine($"[UploadFile] {fileName} → Response: {xml.OuterXml}");
-
-            if (GetXmlValue(xml, "/response/success") == "true")
-            {
-                Console.WriteLine("✅ Archivo subido correctamente");
-                return $"{targetPath}/{fileName}";
-            }
-
-            throw new Exception($"Error al subir archivo: {xml.OuterXml}");
-        }
-
-        private async Task<string> CreateShareByPathAsync(string filePath)
-        {
-            string url = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=create" +
-                         $"&path={Uri.EscapeDataString($"[\"{filePath.Replace("\"", "\\\"")}\"]")}" +
-                         $"&format=xml";
-
-            async Task<XmlDocument> ExecuteAsync()
-            {
-                await EnsureValidSessionAsync();
-                return await SendXmlRequestAsync(url);
-            }
-
-            var xml = await ExecuteAsync();
-            if (IsAuthError(xml.OuterXml))
-            {
-                await RefreshLoginAsync();
-                xml = await ExecuteAsync();
-            }
-
-            Console.WriteLine($"[CreateShare] Response: {xml.OuterXml}");
-
-            if (GetXmlValue(xml, "/response/success") == "true")
-            {
-                var shareUrl = GetXmlValue(xml, "/response/data/links/link/url");
-                if (!string.IsNullOrEmpty(shareUrl))
-                {
-                    Console.WriteLine($"✅ Share generado: {shareUrl}");
-                    return shareUrl;
-                }
-            }
-
-            throw new Exception($"Error creando share: {xml.OuterXml}");
+            throw new Exception($"No se encontró '{name}' en '{parentPath}'");
         }
 
         public async Task<string> UploadAndShareAsync(IFormFile file, string destinationFolder, string fileName)
         {
-            Console.WriteLine($"[UploadAndShare] Iniciando para: {destinationFolder}");
+            string sid = await GetSidAsync();
 
+            // destinationFolder = /CPAPPDEV/img/stories/{guid}
             var storyGuid = destinationFolder.TrimEnd('/').Split('/').Last();
-            var fullFolderPath = $"{StoriesPath}/{storyGuid}";
+            var driveFolderPath = $"/team-folders/CPAPPDEV/img/stories/{storyGuid}";
+            Console.WriteLine($"=== STORY GUID: {storyGuid} | DRIVE PATH: {driveFolderPath} ===");
 
-            await CreateFolderAsync(StoriesPath, storyGuid);
-            var fullFilePath = await UploadFileAsync(fullFolderPath, file, fileName);
+            // 1. Crear carpeta del story (si falla, puede ya existir)
+            string storyFolderFileId;
+            try
+            {
+                storyFolderFileId = await CreateFolderByIdAsync(StoriesFileId, storyGuid);
+                Console.WriteLine($"=== STORY FOLDER FILE_ID: {storyFolderFileId} ===");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"=== CREATE FOLDER FAILED: {ex.Message} — intentando upload directo ===");
+                storyFolderFileId = "";
+            }
 
-            return await CreateShareByPathAsync(fullFilePath);
+            // 2. Upload usando PUT con path como query param (igual que el app Android)
+            // path = /team-folders/CPAPPDEV/img/stories/{guid}
+            string uploadUrl = $"{_synologyBaseUrl}/webapi/entry.cgi" +
+                               $"?path={Uri.EscapeDataString(driveFolderPath)}" +
+                               $"&api=SYNO.FileStation.Upload" +
+                               $"&version=2" +
+                               $"&method=upload" +
+                               $"&create_parents=true" +
+                               $"&overwrite=true";
+
+            using var uploadReq = new HttpRequestMessage(HttpMethod.Put, uploadUrl);
+            AddAuthHeaders(uploadReq);
+
+            using var content = new MultipartFormDataContent("AaB03x");
+            using var stream = file.OpenReadStream();
+            var streamContent = new StreamContent(stream);
+            streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
+                file.ContentType ?? "application/octet-stream");
+            content.Add(streamContent, "file", fileName);
+            uploadReq.Content = content;
+
+            var uploadResp = await _httpClient.SendAsync(uploadReq);
+            var uploadBody = await uploadResp.Content.ReadAsStringAsync();
+            Console.WriteLine($"=== PUT UPLOAD RESPONSE ===\nStatus: {uploadResp.StatusCode}\nBody: {uploadBody}\n================================");
+
+            var uploadResult = JsonSerializer.Deserialize<SynologyBaseResponse>(uploadBody);
+            if (uploadResult == null || !uploadResult.Success)
+                throw new Exception($"Error al subir archivo a Synology. Code: {uploadResult?.Error?.Code}");
+
+            // 3. Generar sharing link con FileStation
+            return await GenerateSharingLinkAsync($"{destinationFolder}/{fileName}", sid);
         }
 
         public async Task DeleteBySharingUrlAsync(string sharingUrl)
         {
-            if (string.IsNullOrEmpty(sharingUrl))
-                return;
+            if (string.IsNullOrEmpty(sharingUrl)) return;
 
-            var path = ExtractPathFromSharingUrl(sharingUrl);
-            if (string.IsNullOrEmpty(path))
-                throw new ArgumentException("No se pudo extraer la ruta de archivo del sharingUrl.", nameof(sharingUrl));
+            string sid = await GetSidAsync();
+            string listUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=list&_sid={sid}";
 
-            await DeleteByPathAsync(path);
+            using var listRequest = new HttpRequestMessage(HttpMethod.Get, listUrl);
+            AddAuthHeaders(listRequest);
+
+            var listHttpResponse = await _httpClient.SendAsync(listRequest);
+            var listResponse = await listHttpResponse.Content.ReadFromJsonAsync<SynologySharingResponse>();
+
+            if (listResponse != null && listResponse.Success && listResponse.Data?.Links != null)
+            {
+                var matchedLink = listResponse.Data.Links.FirstOrDefault(l => l.Url == sharingUrl);
+                if (matchedLink != null)
+                {
+                    string deleteFileUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Delete&version=2&method=delete" +
+                                           $"&path=%5B%22{Uri.EscapeDataString(matchedLink.Path)}%22%5D&recursive=true&_sid={sid}";
+                    using var deleteFileRequest = new HttpRequestMessage(HttpMethod.Get, deleteFileUrl);
+                    AddAuthHeaders(deleteFileRequest);
+                    await _httpClient.SendAsync(deleteFileRequest);
+
+                    string cleanLinkUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=delete" +
+                                          $"&id=%5B%22{matchedLink.Id}%22%5D&_sid={sid}";
+                    using var cleanLinkRequest = new HttpRequestMessage(HttpMethod.Get, cleanLinkUrl);
+                    AddAuthHeaders(cleanLinkRequest);
+                    await _httpClient.SendAsync(cleanLinkRequest);
+                }
+            }
         }
 
-        public async Task DeleteByPathAsync(string filePath)
+        private async Task<string> GenerateSharingLinkAsync(string filePath, string sid)
         {
-            var deleteUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Delete&version=2&method=delete" +
-                            $"&path={Uri.EscapeDataString($"[\"{filePath.Replace("\"", "\\\"")}\"]")}" +
-                            $"&format=xml";
+            string url = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=create" +
+                         $"&path=%22{Uri.EscapeDataString(filePath)}%22&_sid={sid}";
 
-            async Task<XmlDocument> ExecuteAsync()
-            {
-                await EnsureValidSessionAsync();
-                return await SendXmlRequestAsync(deleteUrl);
-            }
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            AddAuthHeaders(req);
 
-            var xml = await ExecuteAsync();
-            if (IsAuthError(xml.OuterXml))
-            {
-                await RefreshLoginAsync();
-                xml = await ExecuteAsync();
-            }
+            var httpResponse = await _httpClient.SendAsync(req);
+            var response = await httpResponse.Content.ReadFromJsonAsync<SynologySharingResponse>();
 
-            if (GetXmlValue(xml, "/response/success") == "true")
-                return;
+            if (response != null && response.Success && response.Data?.Links?.Length > 0)
+                return response.Data.Links[0].Url;
 
-            throw new Exception($"Error borrando archivo: {xml.OuterXml}");
+            throw new Exception("No se pudo generar el enlace compartido en Synology.");
         }
 
-        public async Task<byte[]> DownloadFileAsync(string filePath)
-        {
-            var downloadUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Download&version=2&method=download" +
-                              $"&path={Uri.EscapeDataString(filePath)}";
-
-            await EnsureValidSessionAsync();
-            return await DownloadRawAsync(downloadUrl);
-        }
-
-        private string? ExtractPathFromSharingUrl(string sharingUrl)
-        {
-            try
-            {
-                var uri = new Uri(sharingUrl);
-                var query = QueryHelpers.ParseQuery(uri.Query);
-                if (query.TryGetValue("path", out var pathValues))
-                    return pathValues.FirstOrDefault();
-
-                return null;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        #region DTOs
+        #region DTOs Internos
         public class SynologyBaseResponse
         {
-            [System.Text.Json.Serialization.JsonPropertyName("success")] public bool Success { get; set; }
-            [System.Text.Json.Serialization.JsonPropertyName("error")] public SynologyError? Error { get; set; }
+            [JsonPropertyName("success")] public bool Success { get; set; }
+            [JsonPropertyName("error")] public SynologyError? Error { get; set; }
         }
 
         public class SynologyError
         {
-            [System.Text.Json.Serialization.JsonPropertyName("code")] public int Code { get; set; }
+            [JsonPropertyName("code")] public int Code { get; set; }
         }
 
         public class SynologyLoginResponse : SynologyBaseResponse
         {
-            [System.Text.Json.Serialization.JsonPropertyName("data")] public LoginData? Data { get; set; }
+            [JsonPropertyName("data")] public LoginData? Data { get; set; }
+
             public class LoginData
             {
-                [System.Text.Json.Serialization.JsonPropertyName("sid")] public string Sid { get; set; } = "";
-                [System.Text.Json.Serialization.JsonPropertyName("did")] public string Did { get; set; } = "";
+                [JsonPropertyName("sid")] public string Sid { get; set; } = string.Empty;
+                [JsonPropertyName("did")] public string Did { get; set; } = string.Empty;
+                [JsonPropertyName("synotoken")] public string SynoToken { get; set; } = string.Empty;
+            }
+        }
+
+        public class SynologySharingResponse : SynologyBaseResponse
+        {
+            [JsonPropertyName("data")] public SharingData? Data { get; set; }
+
+            public class SharingData
+            {
+                [JsonPropertyName("links")] public SharingLink[] Links { get; set; } = Array.Empty<SharingLink>();
+            }
+
+            public class SharingLink
+            {
+                [JsonPropertyName("id")] public string Id { get; set; } = string.Empty;
+                [JsonPropertyName("url")] public string Url { get; set; } = string.Empty;
+                [JsonPropertyName("path")] public string Path { get; set; } = string.Empty;
             }
         }
         #endregion
-
     }
 }
