@@ -186,6 +186,7 @@ namespace CorrePalabras.Services
 
                 var uploadUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Upload&version=2&method=upload" +
                                 $"&path={Uri.EscapeDataString(targetPath)}" +
+                                $"&filename={Uri.EscapeDataString(fileName)}" +
                                 $"&overwrite=true&create_parents=true" +
                                 $"&_sid={Uri.EscapeDataString(_cachedSid ?? string.Empty)}";
 
