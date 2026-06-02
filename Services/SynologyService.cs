@@ -61,9 +61,17 @@ namespace CorrePalabras.Services
             string url = $"{_synologyBaseUrl}/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login" +
                          $"&account={Uri.EscapeDataString(_username)}" +
                          $"&passwd={Uri.EscapeDataString(_password)}" +
-                         "&session=FileStation&format=xml";
+                         "&session=FileStation&format=cookie";
 
-            var raw = await _httpClient.GetStringAsync(url);
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            var response = await _httpClient.SendAsync(request);
+            var raw = await response.Content.ReadAsStringAsync();
+
+            if (response.Headers.TryGetValues("Set-Cookie", out var setCookies))
+            {
+                Console.WriteLine($"[Login] Set-Cookie: {string.Join("; ", setCookies)}");
+            }
+
             Console.WriteLine($"[Login Response Raw] {raw}");
 
             try
@@ -84,18 +92,29 @@ namespace CorrePalabras.Services
             catch (Exception xmlEx)
             {
                 Console.WriteLine($"[Login] XML parsing failed, trying JSON: {xmlEx.Message}");
-                
+
                 try
                 {
-                    var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                    var response = System.Text.Json.JsonSerializer.Deserialize<SynologyLoginResponse>(raw, options);
-                    
-                    if (response?.Success == true && response.Data != null)
+                    var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                    var responseData = JsonSerializer.Deserialize<SynologyLoginResponse>(raw, options);
+
+                    if (responseData?.Success == true && responseData.Data != null)
                     {
-                        _cachedSid = response.Data.Sid;
-                        _cachedDid = response.Data.Did;
+                        _cachedSid = responseData.Data.Sid;
+                        _cachedDid = responseData.Data.Did;
                         _sidExpiration = DateTime.UtcNow.AddHours(6);
                         Console.WriteLine("✅ [Synology] Login exitoso (JSON)");
+                        return;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(raw) && raw.Contains("sid=") && raw.Contains("did="))
+                    {
+                        var queryString = raw.StartsWith("?") ? raw : "?" + raw;
+                        var query = QueryHelpers.ParseQuery(queryString);
+                        _cachedSid = query["sid"].ToString();
+                        _cachedDid = query["did"].ToString();
+                        _sidExpiration = DateTime.UtcNow.AddHours(6);
+                        Console.WriteLine("✅ [Synology] Login exitoso (cookie-format)");
                         return;
                     }
 
@@ -183,9 +202,15 @@ namespace CorrePalabras.Services
             if (content != null)
                 request.Content = content;
 
+            if (request.Headers.TryGetValues("Cookie", out var cookieHeaders))
+            {
+                Console.WriteLine($"[SendXmlRequestAsync] Request cookies: {string.Join("; ", cookieHeaders)}");
+            }
+
             var response = await _httpClient.SendAsync(request);
             var raw = await response.Content.ReadAsStringAsync();
 
+            Console.WriteLine($"[SendXmlRequestAsync] {request.Method} {url} -> {response.StatusCode}");
             return ParseSynologyResponse(raw);
         }
 
