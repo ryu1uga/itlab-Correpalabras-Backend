@@ -1,13 +1,14 @@
 using CorrePalabras.Services.Interfaces;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.WebUtilities;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
-using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
+using System.Xml;
 
 namespace CorrePalabras.Services
 {
@@ -24,10 +25,6 @@ namespace CorrePalabras.Services
         private string? _cachedDid;
         private DateTime _sidExpiration = DateTime.MinValue;
         private readonly SemaphoreSlim _loginSemaphore = new(1, 1);
-        private readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web)
-        {
-            PropertyNameCaseInsensitive = true
-        };
 
         public SynologyService(HttpClient httpClient)
         {
@@ -64,35 +61,39 @@ namespace CorrePalabras.Services
             string url = $"{_synologyBaseUrl}/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login" +
                          $"&account={Uri.EscapeDataString(_username)}" +
                          $"&passwd={Uri.EscapeDataString(_password)}" +
-                         "&session=FileStation&format=cookie";
+                         "&session=FileStation&format=xml";
 
-            var raw = await _httpClient.GetStringAsync(url);
-            var response = JsonSerializer.Deserialize<SynologyLoginResponse>(raw, _jsonOptions);
-
-            if (response?.Success == true && response.Data != null)
+            var xml = await SendXmlRequestAsync(url);
+            var success = GetXmlValue(xml, "/response/success");
+            if (string.Equals(success, "true", StringComparison.OrdinalIgnoreCase))
             {
-                _cachedSid = response.Data.Sid;
-                _cachedDid = response.Data.Did;
+                _cachedSid = GetXmlValue(xml, "/response/data/sid");
+                _cachedDid = GetXmlValue(xml, "/response/data/did");
                 _sidExpiration = DateTime.UtcNow.AddHours(6);
                 Console.WriteLine("✅ [Synology] Login exitoso");
                 return;
             }
 
-            throw new Exception($"❌ Login falló: {raw}");
+            throw new Exception($"❌ Login falló: {xml.OuterXml}");
         }
 
         private bool IsAuthError(string body)
         {
             try
             {
-                var baseResponse = JsonSerializer.Deserialize<SynologyBaseResponse>(body, _jsonOptions);
-                return baseResponse != null && !baseResponse.Success &&
-                       (baseResponse.Error?.Code == 106 || baseResponse.Error?.Code == 119);
+                var xml = LoadXml(body);
+                var successValue = GetXmlValue(xml, "/response/success");
+                if (!string.Equals(successValue, "true", StringComparison.OrdinalIgnoreCase))
+                {
+                    var code = GetXmlValue(xml, "/response/error/code");
+                    return code == "106" || code == "119";
+                }
             }
             catch
             {
-                return false;
             }
+
+            return false;
         }
 
         private async Task LogMultipartContentAsync(MultipartFormDataContent content, string uploadFileName, long uploadLength)
@@ -119,136 +120,150 @@ namespace CorrePalabras.Services
             }
         }
 
+        private XmlDocument LoadXml(string raw)
+        {
+            var xml = new XmlDocument();
+            xml.LoadXml(raw);
+            return xml;
+        }
+
+        private string? GetXmlValue(XmlDocument xml, string xpath)
+        {
+            var node = xml.SelectSingleNode(xpath);
+            return node?.InnerText;
+        }
+
+        private async Task<XmlDocument> SendXmlRequestAsync(string url, HttpContent? content = null)
+        {
+            using var request = new HttpRequestMessage(content == null ? HttpMethod.Get : HttpMethod.Post, url);
+            if (content != null)
+                request.Content = content;
+
+            var response = await _httpClient.SendAsync(request);
+            var raw = await response.Content.ReadAsStringAsync();
+            return LoadXml(raw);
+        }
+
+        private async Task<byte[]> DownloadRawAsync(string url)
+        {
+            var response = await _httpClient.GetAsync(url);
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadAsByteArrayAsync();
+        }
+
         private async Task CreateFolderAsync(string parentPath, string folderName)
         {
-            string url = $"{_synologyBaseUrl}/webapi/entry.cgi";
+            string url = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.CreateFolder&version=2&method=create" +
+                         $"&folder_path={Uri.EscapeDataString(parentPath)}" +
+                         $"&name={Uri.EscapeDataString(folderName)}" +
+                         $"&force_parent=true" +
+                         $"&format=xml";
 
-            async Task<string> ExecuteAsync()
+            async Task<XmlDocument> ExecuteAsync()
             {
                 await EnsureValidSessionAsync();
-
-                using var req = new HttpRequestMessage(HttpMethod.Post, url);
-
-                var form = new Dictionary<string, string>
-                {
-                    { "api", "SYNO.FileStation.CreateFolder" },
-                    { "version", "2" },
-                    { "method", "create" },
-                    { "folder_path", parentPath },
-                    { "name", folderName },
-                    { "force_parent", "true" },
-                    { "_sid", _cachedSid! }
-                };
-
-                req.Content = new FormUrlEncodedContent(form);
-                var resp = await _httpClient.SendAsync(req);
-                return await resp.Content.ReadAsStringAsync();
+                return await SendXmlRequestAsync(url);
             }
 
-            var body = await ExecuteAsync();
-            if (IsAuthError(body))
+            var xml = await ExecuteAsync();
+            if (IsAuthError(xml.OuterXml))
             {
                 await RefreshLoginAsync();
-                body = await ExecuteAsync();
+                xml = await ExecuteAsync();
             }
 
-            Console.WriteLine($"[CreateFolder] {parentPath}/{folderName} | Response: {body}");
+            Console.WriteLine($"[CreateFolder] {parentPath}/{folderName} | Response: {xml.OuterXml}");
 
-            using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.TryGetProperty("success", out var success) && success.GetBoolean())
+            if (GetXmlValue(xml, "/response/success") == "true")
             {
                 Console.WriteLine("✅ Carpeta creada");
                 return;
             }
 
-            if (body.Contains("\"code\":400"))
+            var code = GetXmlValue(xml, "/response/error/code");
+            if (code == "400")
             {
                 Console.WriteLine("ℹ️ Carpeta ya existía");
                 return;
             }
 
-            throw new Exception($"Error creando carpeta: {body}");
+            throw new Exception($"Error creando carpeta: {xml.OuterXml}");
         }
 
         // ======================= UPLOAD CORREGIDO =======================
         private async Task<string> UploadFileAsync(string targetPath, IFormFile file, string fileName)
         {
-            async Task<string> ExecuteAsync()
+            async Task<XmlDocument> ExecuteAsync()
             {
                 await EnsureValidSessionAsync();
 
                 var uploadUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Upload&version=2&method=upload" +
                                 $"&path={Uri.EscapeDataString(targetPath)}" +
-                                $"&filename={Uri.EscapeDataString(fileName)}" +
                                 $"&overwrite=true&create_parents=true" +
-                                $"&_sid={Uri.EscapeDataString(_cachedSid ?? string.Empty)}";
-
-                using var req = new HttpRequestMessage(HttpMethod.Post, uploadUrl);
+                                $"&format=xml";
 
                 using var content = new MultipartFormDataContent();
                 using var streamContent = new StreamContent(file.OpenReadStream());
                 streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
                     file.ContentType ?? "application/octet-stream");
                 content.Add(streamContent, "file", fileName);
+                content.Add(new StringContent(fileName), "filename");
 
                 await LogMultipartContentAsync(content, fileName, file.Length);
 
-                req.Content = content;
-                var resp = await _httpClient.SendAsync(req);
-                return await resp.Content.ReadAsStringAsync();
+                return await SendXmlRequestAsync(uploadUrl, content);
             }
 
-            var body = await ExecuteAsync();
-            if (IsAuthError(body))
+            var xml = await ExecuteAsync();
+            if (IsAuthError(xml.OuterXml))
             {
                 await RefreshLoginAsync();
-                body = await ExecuteAsync();
+                xml = await ExecuteAsync();
             }
 
-            Console.WriteLine($"[UploadFile] {fileName} → Response: {body}");
+            Console.WriteLine($"[UploadFile] {fileName} → Response: {xml.OuterXml}");
 
-            using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.TryGetProperty("success", out var success) && success.GetBoolean())
+            if (GetXmlValue(xml, "/response/success") == "true")
             {
                 Console.WriteLine("✅ Archivo subido correctamente");
                 return $"{targetPath}/{fileName}";
             }
 
-            throw new Exception($"Error al subir archivo: {body}");
+            throw new Exception($"Error al subir archivo: {xml.OuterXml}");
         }
 
         private async Task<string> CreateShareByPathAsync(string filePath)
         {
             string url = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=create" +
-                         $"&path=%22{Uri.EscapeDataString(filePath)}%22&_sid={_cachedSid}";
+                         $"&path=%22{Uri.EscapeDataString(filePath)}%22" +
+                         $"&format=xml";
 
-            async Task<string> ExecuteAsync()
+            async Task<XmlDocument> ExecuteAsync()
             {
                 await EnsureValidSessionAsync();
-                using var req = new HttpRequestMessage(HttpMethod.Get, url);
-                var resp = await _httpClient.SendAsync(req);
-                return await resp.Content.ReadAsStringAsync();
+                return await SendXmlRequestAsync(url);
             }
 
-            var body = await ExecuteAsync();
-            if (IsAuthError(body))
+            var xml = await ExecuteAsync();
+            if (IsAuthError(xml.OuterXml))
             {
                 await RefreshLoginAsync();
-                body = await ExecuteAsync();
+                xml = await ExecuteAsync();
             }
 
-            Console.WriteLine($"[CreateShare] Response: {body}");
+            Console.WriteLine($"[CreateShare] Response: {xml.OuterXml}");
 
-            var result = JsonSerializer.Deserialize<SynologySharingResponse>(body, _jsonOptions);
-
-            if (result?.Success == true && result.Data?.Links?.Length > 0)
+            if (GetXmlValue(xml, "/response/success") == "true")
             {
-                var shareUrl = result.Data.Links[0].Url;
-                Console.WriteLine($"✅ Share generado: {shareUrl}");
-                return shareUrl;
+                var shareUrl = GetXmlValue(xml, "/response/data/links/link/url");
+                if (!string.IsNullOrEmpty(shareUrl))
+                {
+                    Console.WriteLine($"✅ Share generado: {shareUrl}");
+                    return shareUrl;
+                }
             }
 
-            throw new Exception($"Error creando share: {body}");
+            throw new Exception($"Error creando share: {xml.OuterXml}");
         }
 
         public async Task<string> UploadAndShareAsync(IFormFile file, string destinationFolder, string fileName)
@@ -266,48 +281,66 @@ namespace CorrePalabras.Services
 
         public async Task DeleteBySharingUrlAsync(string sharingUrl)
         {
-            if (string.IsNullOrEmpty(sharingUrl)) return;
-            // (mantengo tu implementación anterior o la que tenías)
-            await Task.CompletedTask;
+            if (string.IsNullOrEmpty(sharingUrl))
+                return;
+
+            var path = ExtractPathFromSharingUrl(sharingUrl);
+            if (string.IsNullOrEmpty(path))
+                throw new ArgumentException("No se pudo extraer la ruta de archivo del sharingUrl.", nameof(sharingUrl));
+
+            await DeleteByPathAsync(path);
         }
 
-        #region DTOs
-        // ... (mantén los mismos DTOs que tenías)
-        public class SynologyBaseResponse
+        public async Task DeleteByPathAsync(string filePath)
         {
-            [JsonPropertyName("success")] public bool Success { get; set; }
-            [JsonPropertyName("error")] public SynologyError? Error { get; set; }
-        }
+            var deleteUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Delete&version=2&method=delete" +
+                            $"&path={Uri.EscapeDataString($"[\"{filePath.Replace("\"", "\\\"")}\"]")}" +
+                            $"&format=xml";
 
-        public class SynologyError
-        {
-            [JsonPropertyName("code")] public int Code { get; set; }
-        }
-
-        public class SynologyLoginResponse : SynologyBaseResponse
-        {
-            [JsonPropertyName("data")] public LoginData? Data { get; set; }
-            public class LoginData
+            async Task<XmlDocument> ExecuteAsync()
             {
-                [JsonPropertyName("sid")] public string Sid { get; set; } = "";
-                [JsonPropertyName("did")] public string Did { get; set; } = "";
+                await EnsureValidSessionAsync();
+                return await SendXmlRequestAsync(deleteUrl);
+            }
+
+            var xml = await ExecuteAsync();
+            if (IsAuthError(xml.OuterXml))
+            {
+                await RefreshLoginAsync();
+                xml = await ExecuteAsync();
+            }
+
+            if (GetXmlValue(xml, "/response/success") == "true")
+                return;
+
+            throw new Exception($"Error borrando archivo: {xml.OuterXml}");
+        }
+
+        public async Task<byte[]> DownloadFileAsync(string filePath)
+        {
+            var downloadUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Download&version=2&method=download" +
+                              $"&path={Uri.EscapeDataString(filePath)}";
+
+            await EnsureValidSessionAsync();
+            return await DownloadRawAsync(downloadUrl);
+        }
+
+        private string? ExtractPathFromSharingUrl(string sharingUrl)
+        {
+            try
+            {
+                var uri = new Uri(sharingUrl);
+                var query = QueryHelpers.ParseQuery(uri.Query);
+                if (query.TryGetValue("path", out var pathValues))
+                    return pathValues.FirstOrDefault();
+
+                return null;
+            }
+            catch
+            {
+                return null;
             }
         }
 
-        public class SynologySharingResponse : SynologyBaseResponse
-        {
-            [JsonPropertyName("data")] public SharingData? Data { get; set; }
-            public class SharingData
-            {
-                [JsonPropertyName("links")] public SharingLink[] Links { get; set; } = Array.Empty<SharingLink>();
-            }
-            public class SharingLink
-            {
-                [JsonPropertyName("id")] public string Id { get; set; } = "";
-                [JsonPropertyName("url")] public string Url { get; set; } = "";
-                [JsonPropertyName("path")] public string Path { get; set; } = "";
-            }
-        }
-        #endregion
     }
 }
