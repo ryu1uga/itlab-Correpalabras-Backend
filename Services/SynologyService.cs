@@ -172,6 +172,7 @@ namespace CorrePalabras.Services
                 content.Add(new StringContent(targetPath), "path");
                 content.Add(new StringContent("true"), "overwrite");
                 content.Add(new StringContent("true"), "create_parents");
+                content.Add(new StringContent(_cachedSid ?? string.Empty), "_sid");
 
                 using var streamContent = new StreamContent(file.OpenReadStream());
                 streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
