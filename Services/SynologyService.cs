@@ -15,6 +15,7 @@ namespace CorrePalabras.Services
     public class SynologyService : ISynologyService
     {
         private readonly HttpClient _httpClient;
+        private readonly CookieContainer _cookieContainer;
         private readonly string _synologyBaseUrl;
         private readonly string _username;
         private readonly string _password;
@@ -26,9 +27,10 @@ namespace CorrePalabras.Services
         private DateTime _sidExpiration = DateTime.MinValue;
         private readonly SemaphoreSlim _loginSemaphore = new(1, 1);
 
-        public SynologyService(HttpClient httpClient)
+        public SynologyService(HttpClient httpClient, CookieContainer cookieContainer)
         {
             _httpClient = httpClient;
+            _cookieContainer = cookieContainer;
             _synologyBaseUrl = Environment.GetEnvironmentVariable("SYNOLOGY_BASE_URL") ?? "http://localhost:5000";
             _username = Environment.GetEnvironmentVariable("SYNOLOGY_USERNAME") ?? "";
             _password = Environment.GetEnvironmentVariable("SYNOLOGY_PASSWORD") ?? "";
@@ -72,6 +74,7 @@ namespace CorrePalabras.Services
                 Console.WriteLine($"[Login] Set-Cookie: {string.Join("; ", setCookies)}");
             }
 
+            LogCurrentCookies();
             Console.WriteLine($"[Login Response Raw] {raw}");
 
             try
@@ -194,6 +197,24 @@ namespace CorrePalabras.Services
         {
             var node = xml.SelectSingleNode(xpath);
             return node?.InnerText;
+        }
+
+        private void LogCurrentCookies()
+        {
+            try
+            {
+                var uri = new Uri(_synologyBaseUrl);
+                var cookies = _cookieContainer.GetCookies(uri);
+                Console.WriteLine($"[CookieContainer] {uri.Host} cookies: {cookies.Count}");
+                foreach (System.Net.Cookie cookie in cookies)
+                {
+                    Console.WriteLine($"  cookie: {cookie.Name}={cookie.Value}; path={cookie.Path}; expires={cookie.Expires}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[CookieContainer] Failed to log cookies: {ex.Message}");
+            }
         }
 
         private async Task<XmlDocument> SendXmlRequestAsync(string url, HttpContent? content = null)
@@ -339,7 +360,6 @@ namespace CorrePalabras.Services
                 streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
                     file.ContentType ?? "application/octet-stream");
                 content.Add(streamContent, "file", fileName);
-                content.Add(new StringContent(fileName), "filename");
 
                 await LogMultipartContentAsync(content, fileName, file.Length);
 

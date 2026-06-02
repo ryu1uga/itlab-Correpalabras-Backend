@@ -121,6 +121,9 @@ builder.Services.AddScoped<IUnlockedBadgesService, UnlockedBadgesService>();
 builder.Services.AddScoped<IUsersService, UsersService>();
 builder.Services.AddScoped<IHealthCheckService, HealthCheckService>();
 
+var synologyCookieContainer = new System.Net.CookieContainer();
+builder.Services.AddSingleton(synologyCookieContainer);
+
 builder.Services.AddHttpClient<ISynologyService, SynologyService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(30);
@@ -128,7 +131,7 @@ builder.Services.AddHttpClient<ISynologyService, SynologyService>(client =>
 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
 {
     UseCookies = true,
-    CookieContainer = new System.Net.CookieContainer()
+    CookieContainer = synologyCookieContainer
 });
 
 // Configuración de CORS - Restringida según ambiente
