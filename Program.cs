@@ -122,12 +122,15 @@ builder.Services.AddScoped<IUnlockedBadgesService, UnlockedBadgesService>();
 builder.Services.AddScoped<IUsersService, UsersService>();
 builder.Services.AddScoped<IHealthCheckService, HealthCheckService>();
 
-var synologyCookieContainer = new System.Net.CookieContainer();
+// SynologyService como Singleton para que el sid cacheado y el semáforo
+// sean compartidos por todas las requests, evitando logins redundantes y
+// condiciones de carrera.
+var synologyCookieContainer = new CookieContainer();
 builder.Services.AddSingleton(synologyCookieContainer);
 
-builder.Services.AddHttpClient<ISynologyService, SynologyService>(client =>
+builder.Services.AddHttpClient("SynologyClient", client =>
 {
-    client.Timeout = TimeSpan.FromSeconds(30);
+    client.Timeout = TimeSpan.FromSeconds(120);
 })
 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
 {
@@ -136,6 +139,14 @@ builder.Services.AddHttpClient<ISynologyService, SynologyService>(client =>
     AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
     AllowAutoRedirect = true,
     UseDefaultCredentials = false
+});
+
+builder.Services.AddSingleton<ISynologyService>(sp =>
+{
+    var factory = sp.GetRequiredService<IHttpClientFactory>();
+    var httpClient = factory.CreateClient("SynologyClient");
+    var cookieContainer = sp.GetRequiredService<CookieContainer>();
+    return new SynologyService(httpClient, cookieContainer);
 });
 
 // Configuración de CORS - Restringida según ambiente

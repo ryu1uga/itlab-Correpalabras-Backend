@@ -5,11 +5,16 @@ services:
       POSTGRES_USER: correpalabras
       POSTGRES_PASSWORD: correpalabras
       POSTGRES_DB: correpalabras
+      POSTGRES_HOST_AUTH_METHOD: md5  # ← agrega esto
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
-    command: ["postgres", "-c", "shared_preload_libraries=uuid-ossp"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U correpalabras -d correpalabras"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   web:
     build:
@@ -18,10 +23,12 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
     environment:
-      ConnectionStrings__DefaultConnection: "Server=correpalabras;Database=correpalabras;Username=correpalabras;Password=correpalabras"
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=correpalabras;Username=correpalabras;Password=correpalabras"
 
 volumes:
   postgres_data:
- 

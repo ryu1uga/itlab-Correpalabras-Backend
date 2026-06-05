@@ -21,8 +21,6 @@ namespace CorrePalabras.Services
         private readonly string _username;
         private readonly string _password;
 
-        private const string StoriesPath = "/CPAPPDEV/img/stories";
-
         private string? _cachedSid;
         private string? _cachedDid;
         private DateTime _sidExpiration = DateTime.MinValue;
@@ -61,12 +59,17 @@ namespace CorrePalabras.Services
             _cachedSid = _cachedDid = null;
             _sidExpiration = DateTime.MinValue;
 
-            string url = $"{_synologyBaseUrl}/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login" +
-                         $"&account={Uri.EscapeDataString(_username)}" +
-                         $"&passwd={Uri.EscapeDataString(_password)}" +
-                         "&session=FileStation&format=cookie";
+            // Credentials go in the POST body so they never appear in logged URLs.
+            string url = $"{_synologyBaseUrl}/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login&session=SynologyDrive&format=cookie";
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            using var request = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = new FormUrlEncodedContent(new Dictionary<string, string>
+                {
+                    ["account"] = _username,
+                    ["passwd"]  = _password
+                })
+            };
             var response = await _httpClient.SendAsync(request);
             var raw = await response.Content.ReadAsStringAsync();
 
@@ -78,63 +81,27 @@ namespace CorrePalabras.Services
             LogCurrentCookies();
             Console.WriteLine($"[Login Response Raw] {raw}");
 
+            // The API always responds with JSON — parse it directly.
             try
             {
-                var xml = LoadXml(raw);
-                var success = GetXmlValue(xml, "/response/success");
-                if (string.Equals(success, "true", StringComparison.OrdinalIgnoreCase))
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var responseData = JsonSerializer.Deserialize<SynologyLoginResponse>(raw, options);
+
+                if (responseData?.Success == true && responseData.Data != null)
                 {
-                    _cachedSid = GetXmlValue(xml, "/response/data/sid");
-                    _cachedDid = GetXmlValue(xml, "/response/data/did");
+                    _cachedSid = responseData.Data.Sid;
+                    _cachedDid = responseData.Data.Did;
                     _sidExpiration = DateTime.UtcNow.AddHours(6);
                     EnsureCookieContainerHasAuthCookies();
                     Console.WriteLine("✅ [Synology] Login exitoso");
                     return;
                 }
 
-                throw new Exception($"❌ Login falló (XML): {xml.OuterXml}");
+                throw new Exception($"❌ Login falló: {raw}");
             }
-            catch (Exception xmlEx)
+            catch (Exception ex)
             {
-                Console.WriteLine($"[Login] XML parsing failed, trying JSON: {xmlEx.Message}");
-
-                try
-                {
-                    var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                    var responseData = JsonSerializer.Deserialize<SynologyLoginResponse>(raw, options);
-
-                    if (responseData?.Success == true && responseData.Data != null)
-                    {
-                        _cachedSid = responseData.Data.Sid;
-                        _cachedDid = responseData.Data.Did;
-                        _sidExpiration = DateTime.UtcNow.AddHours(6);
-                        EnsureCookieContainerHasAuthCookies();
-                        Console.WriteLine("✅ [Synology] Login exitoso (JSON)");
-                        return;
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(raw) && (raw.Contains("sid=") || raw.Contains("id=")) && raw.Contains("did="))
-                    {
-                        var queryString = raw.StartsWith("?") ? raw : "?" + raw;
-                        var query = QueryHelpers.ParseQuery(queryString);
-                        _cachedSid = query["sid"].ToString();
-                        if (string.IsNullOrEmpty(_cachedSid))
-                        {
-                            _cachedSid = query["id"].ToString();
-                        }
-                        _cachedDid = query["did"].ToString();
-                        _sidExpiration = DateTime.UtcNow.AddHours(6);
-                        EnsureCookieContainerHasAuthCookies();
-                        Console.WriteLine("✅ [Synology] Login exitoso (cookie-format)");
-                        return;
-                    }
-
-                    throw new Exception($"❌ Login falló (JSON): {raw}");
-                }
-                catch (Exception jsonEx)
-                {
-                    throw new Exception($"❌ Login falló (both XML and JSON): {raw}", jsonEx);
-                }
+                throw new Exception($"❌ Login falló: {raw}", ex);
             }
         }
 
@@ -388,28 +355,37 @@ namespace CorrePalabras.Services
             throw new Exception($"Error creando carpeta: {xml.OuterXml}");
         }
 
-        // ======================= UPLOAD CORREGIDO =======================
+        // ======================= UPLOAD (Synology Drive API) =======================
         private async Task<string> UploadFileAsync(string targetPath, IFormFile file, string fileName)
         {
-            // Helper to create fresh multipart content for each attempt (streams cannot be reused)
+            // Synology Drive Team Folders require the Drive-native upload API.
+            // The path for a Team Folder must start with /team-folders/<folderName>/...
+            // We derive that from the NAS path: /CPAPPDEV/img/... → /team-folders/CPAPPDEV/img/...
+            string driveDestPath = ConvertNasPathToDrivePath(targetPath);
+
             MultipartFormDataContent CreateContent()
             {
                 var content = new MultipartFormDataContent();
                 var stream = new StreamContent(file.OpenReadStream());
                 stream.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
                     file.ContentType ?? "application/octet-stream");
-                content.Add(stream, "file", fileName);
+                content.Add(stream, "content", fileName);
                 return content;
             }
 
-            async Task<XmlDocument> TryUploadAsync(bool addCookieHeader)
+            async Task<XmlDocument> TryUploadAsync()
             {
                 await EnsureValidSessionAsync();
+                var sid = _cachedSid ?? string.Empty;
+                var filePath = $"{driveDestPath}/{fileName}";
 
-                var uploadUrl = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Upload&version=2&method=upload" +
-                                $"&path={Uri.EscapeDataString(targetPath)}" +
-                                $"&overwrite=true&create_parents=true" +
-                                $"&format=xml";
+                // path and type must go in the query string, not the body
+                var uploadUrl = $"{_synologyBaseUrl}/webapi/entry.cgi" +
+                                $"?api=SYNO.SynologyDrive.Files&version=2&method=upload" +
+                                $"&_sid={Uri.EscapeDataString(sid)}" +
+                                $"&path={Uri.EscapeDataString(filePath)}" +
+                                $"&type=file" +
+                                $"&conflict_action=version";
 
                 using var content = CreateContent();
                 await LogMultipartContentAsync(content, fileName, file.Length);
@@ -418,68 +394,49 @@ namespace CorrePalabras.Services
                 {
                     Content = content
                 };
-
                 request.Headers.ExpectContinue = false;
                 request.Headers.UserAgent.ParseAdd("CorrePalabras/1.0");
-                try
-                {
-                    var referer = _synologyBaseUrl.TrimEnd('/') + "/drive/";
-                    request.Headers.Referrer = new Uri(referer);
-                }
-                catch { }
 
-                // Let handler send cookies by default; optionally add explicit Cookie header
-                if (addCookieHeader && request.RequestUri != null)
-                {
-                    var cookies = _cookieContainer.GetCookies(request.RequestUri);
-                    var cookieHeader = string.Join("; ", cookies.Cast<System.Net.Cookie>().Select(c => $"{c.Name}={c.Value}"));
-                    if (!string.IsNullOrWhiteSpace(cookieHeader))
-                        request.Headers.TryAddWithoutValidation("Cookie", cookieHeader);
-                }
-
-                Console.WriteLine($"[TryUpload] Sending upload. addCookieHeader={addCookieHeader}");
-                Console.WriteLine($"[TryUpload] Request URL: {uploadUrl}");
-                if (request.Headers.Contains("Cookie"))
-                {
-                    var headers = string.Join("; ", request.Headers.GetValues("Cookie"));
-                    Console.WriteLine($"[TryUpload] Cookie header sent: {headers}");
-                }
+                Console.WriteLine($"[TryUpload] Drive upload → dest: {driveDestPath}, file: {fileName}");
 
                 var response = await _httpClient.SendAsync(request);
                 var raw = await response.Content.ReadAsStringAsync();
-
-                Console.WriteLine($"[TryUpload] Response status: {(int)response.StatusCode} {response.ReasonPhrase}");
-                foreach (var h in response.Headers)
-                {
-                    Console.WriteLine($"[TryUpload] Resp header: {h.Key}={string.Join(',', h.Value)}");
-                }
-                Console.WriteLine($"[TryUpload] Raw body: {raw}");
+                Console.WriteLine($"[TryUpload] Status: {(int)response.StatusCode} | Body: {raw}");
 
                 return ParseSynologyResponse(raw);
             }
 
-            // First try without forcing Cookie header (let handler manage it)
-            var xml = await TryUploadAsync(addCookieHeader: false);
+            var xml = await TryUploadAsync();
 
-            // If auth error or explicit 401, try refresh login once and retry with explicit cookie header
             if (IsAuthError(xml.OuterXml) || GetXmlValue(xml, "/response/error/code") == "401")
             {
-                Console.WriteLine("[UploadFile] Auth error detected, refreshing login and retrying with explicit cookie header.");
+                Console.WriteLine("[UploadFile] Auth error, refreshing session and retrying.");
                 await RefreshLoginAsync();
-                xml = await TryUploadAsync(addCookieHeader: true);
+                xml = await TryUploadAsync();
             }
 
-            Console.WriteLine($"[UploadFile] {fileName} → Response: {xml.OuterXml}");
+            Console.WriteLine($"[UploadFile] {fileName} → {xml.OuterXml}");
 
             if (GetXmlValue(xml, "/response/success") == "true")
             {
                 Console.WriteLine("✅ Archivo subido correctamente");
+                // Return NAS-style path so CreateShareByPathAsync can share it via FileStation
                 return $"{targetPath}/{fileName}";
             }
 
             throw new Exception($"Error al subir archivo: {xml.OuterXml}");
         }
 
+        /// <summary>
+        /// Converts a NAS filesystem path to the Synology Drive virtual path.
+        /// Example: /CPAPPDEV/img/avatars → /team-folders/CPAPPDEV/img/avatars
+        /// </summary>
+        private static string ConvertNasPathToDrivePath(string nasPath)
+        {
+            // nasPath starts with /CPAPPDEV/... which is a Team Folder root named CPAPPDEV
+            var trimmed = nasPath.TrimStart('/');
+            return "/team-folders/" + trimmed;
+        }
         private async Task<string> CreateShareByPathAsync(string filePath)
         {
             string url = $"{_synologyBaseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Sharing&version=3&method=create" +
@@ -518,10 +475,17 @@ namespace CorrePalabras.Services
         {
             Console.WriteLine($"[UploadAndShare] Iniciando para: {destinationFolder}");
 
-            var storyGuid = destinationFolder.TrimEnd('/').Split('/').Last();
-            var fullFolderPath = $"{StoriesPath}/{storyGuid}";
+            // Normalize: remove trailing slash
+            var fullFolderPath = destinationFolder.TrimEnd('/');
 
-            await CreateFolderAsync(StoriesPath, storyGuid);
+            // Ensure the full folder hierarchy exists.
+            // We split the path and create each segment with force_parent=true,
+            // which lets Synology create all intermediate directories in one call.
+            var lastSlash = fullFolderPath.LastIndexOf('/');
+            var parentPath = lastSlash > 0 ? fullFolderPath[..lastSlash] : "/";
+            var folderName = fullFolderPath[(lastSlash + 1)..];
+
+            await CreateFolderAsync(parentPath, folderName);
             var fullFilePath = await UploadFileAsync(fullFolderPath, file, fileName);
 
             return await CreateShareByPathAsync(fullFilePath);
