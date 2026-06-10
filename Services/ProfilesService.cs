@@ -89,8 +89,8 @@ namespace CorrePalabras.Services
             if (profile == null) return null;
 
             var summary = await _context.ProfileStories
-                .Where(ps => ps.Id == profileId)
-                .GroupBy(ps => ps.Id)
+                .Where(ps => ps.ProfileId == profileId)
+                .GroupBy(ps => ps.ProfileId)
                 .Select(g => new
                 {
                     ReadCount = g.Count(ps => ps.IsRead == true),
