@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using CorrePalabras.DTOs.Common;
 using CorrePalabras.Services.Interfaces;
 using System;
+using System.Security.Claims;
 using System.Threading.Tasks;
 
 namespace CorrePalabras.Controllers
@@ -64,6 +65,33 @@ namespace CorrePalabras.Controllers
             catch (Exception ex) { return ErrorResponse(ex.Message); }
         }
         
+        [HttpPost("refresh-token")]
+        public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequestDTO dto)
+        {
+            try
+            {
+                var result = await _service.RefreshTokenAsync(dto);
+                return SuccessResponse(result);
+            }
+            catch (Exception ex) { return ErrorResponse(ex.Message, 401); }
+        }
+
+        [Authorize]
+        [HttpPost("logout")]
+        public async Task<IActionResult> Logout()
+        {
+            try
+            {
+                var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                if (!Guid.TryParse(userIdClaim, out var userId))
+                    return ErrorResponse("Token inválido.", 401);
+
+                var result = await _service.LogoutAsync(userId);
+                return SuccessResponse(result);
+            }
+            catch (Exception ex) { return ErrorResponse(ex.Message); }
+        }
+
         [HttpPost("verifyemail")]
         public async Task<IActionResult> VerifyEmail([FromBody] EmailDTO dto)
         {

@@ -125,13 +125,68 @@ namespace CorrePalabras.Services
             if (!BCrypt.Net.BCrypt.Verify(dto.Password, user.Password)) throw new UnauthorizedAccessException("Contraseña incorrecta.");
 
             var token = _jwtService.GenerateToken(user.Id, user.Email, user.UserType);
+            var refreshToken = await IssueRefreshTokenAsync(user.Id);
 
-            return new { user.Id, user.Name, user.Email, Token = token };
+            return new { user.Id, user.Name, user.Email, Token = token, RefreshToken = refreshToken };
+        }
+
+        public async Task<object?> RefreshTokenAsync(RefreshTokenRequestDTO dto)
+        {
+            var existing = await _context.RefreshTokens
+                .Include(rt => rt.User)
+                .SingleOrDefaultAsync(rt => rt.Token == dto.RefreshToken);
+
+            if (existing == null || !existing.IsActive || existing.User == null)
+                throw new UnauthorizedAccessException("Refresh token inválido o expirado.");
+
+            // Revoca el token usado y emite uno nuevo (rotación de refresh tokens)
+            var newRefreshToken = _jwtService.GenerateRefreshToken();
+            existing.RevokedAt = DateTime.UtcNow;
+            existing.ReplacedByToken = newRefreshToken;
+
+            _context.RefreshTokens.Add(new RefreshToken
+            {
+                UserId = existing.UserId,
+                Token = newRefreshToken,
+                ExpiresAt = DateTime.UtcNow.AddDays(30),
+                CreatedAt = DateTime.UtcNow
+            });
+
+            await _context.SaveChangesAsync();
+
+            var user = existing.User;
+            var accessToken = _jwtService.GenerateToken(user.Id, user.Email, user.UserType);
+
+            return new { user.Id, user.Name, user.Email, Token = accessToken, RefreshToken = newRefreshToken };
         }
 
         public async Task<string> LogoutAsync(Guid id)
         {
+            var activeTokens = await _context.RefreshTokens
+                .Where(rt => rt.UserId == id && rt.RevokedAt == null)
+                .ToListAsync();
+
+            foreach (var rt in activeTokens)
+                rt.RevokedAt = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
             return "Cierre de sesión realizado exitosamente.";
+        }
+
+        private async Task<string> IssueRefreshTokenAsync(Guid userId)
+        {
+            var refreshToken = _jwtService.GenerateRefreshToken();
+
+            _context.RefreshTokens.Add(new RefreshToken
+            {
+                UserId = userId,
+                Token = refreshToken,
+                ExpiresAt = DateTime.UtcNow.AddDays(30),
+                CreatedAt = DateTime.UtcNow
+            });
+
+            await _context.SaveChangesAsync();
+            return refreshToken;
         }
 
         public async Task<string> GenerateVerificationCodeAsync(string email)

@@ -175,6 +175,22 @@ CREATE TABLE public."User" (
 ALTER TABLE public."User" OWNER TO correpalabras;
 
 
+CREATE TABLE public."RefreshToken" (
+    "Id" uuid NOT NULL,
+    "UserId" uuid NOT NULL,
+    "Token" varchar NOT NULL,
+    "ExpiresAt" timestamp with time zone NOT NULL,
+    "CreatedAt" timestamp with time zone NOT NULL,
+    "RevokedAt" timestamp with time zone,
+    "ReplacedByToken" varchar
+);
+
+ALTER TABLE public."RefreshToken" OWNER TO correpalabras;
+
+ALTER TABLE ONLY public."RefreshToken"
+    ALTER COLUMN "Id" SET DEFAULT gen_random_uuid();
+
+
 ALTER TABLE ONLY public."Attachment"
     ADD CONSTRAINT "Attachment_pkey" PRIMARY KEY ("Id");
 
@@ -234,6 +250,9 @@ ALTER TABLE ONLY public."UnlockedBadge"
 ALTER TABLE ONLY public."User"
     ADD CONSTRAINT "User_pkey" PRIMARY KEY ("Id");
 
+ALTER TABLE ONLY public."RefreshToken"
+    ADD CONSTRAINT "RefreshToken_pkey" PRIMARY KEY ("Id");
+
 
 ALTER TABLE ONLY public."Attachment"
     ADD CONSTRAINT "FK_ATTACHMENT_STORY" FOREIGN KEY ("StoryId") REFERENCES public."Story"("Id") ON DELETE CASCADE;
@@ -286,10 +305,11 @@ ALTER TABLE ONLY public."StoryLanguage"
 
 
 ALTER TABLE ONLY public."UnlockedAvatar"
-    ADD CONSTRAINT "FK_Profile_UnlockedAvatar" FOREIGN KEY ("ProfileId") REFERENCES public."Profile" ("Id") ON DELETE CASCADE;
+    ADD CONSTRAINT "FK_Profile_UnlockedAvatar" FOREIGN KEY ("Pr
 
-ALTER TABLE ONLY public."UnlockedAvatar"
-    ADD CONSTRAINT "FK_Avatar_UnlockedAvatar" FOREIGN KEY ("AvatarId") REFERENCES public."Avatar" ("Id") ON DELETE CASCADE;
+ALTER TABLE ONLY public."RefreshToken"
+    ADD CONSTRAINT "FK_RefreshToken_User" FOREIGN KEY ("UserId") REFERENCES public."User" ("Id") ON DELETE CASCADE;
+REIGN KEY ("AvatarId") REFERENCES public."Avatar" ("Id") ON DELETE CASCADE;
 
 
 ALTER TABLE ONLY public."UnlockedBadge"

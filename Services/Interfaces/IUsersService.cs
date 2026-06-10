@@ -15,6 +15,7 @@ namespace CorrePalabras.Services.Interfaces
         Task<string> UpdateAsync(Guid id, UserDTO dto);
         Task<string> DeleteAsync(EmailVerificationDTO dto);
         Task<object?> LoginAsync(LoginRequestDTO dto, bool isAdmin);
+        Task<object?> RefreshTokenAsync(RefreshTokenRequestDTO dto);
         Task<string> LogoutAsync(Guid id);
         Task<string> GenerateVerificationCodeAsync(string email);
         Task<string> ResetPasswordAsync(ResetPasswordDTO dto);

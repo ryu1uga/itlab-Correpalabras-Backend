@@ -24,6 +24,7 @@ namespace CorrePalabras.Data
         public DbSet<UnlockedAvatar> UnlockedAvatars { get; set; }
         public DbSet<UnlockedBadge> UnlockedBadges { get; set; }
         public DbSet<User> Users { get; set; }
+        public DbSet<RefreshToken> RefreshTokens { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -87,11 +88,21 @@ namespace CorrePalabras.Data
                 .Property(p => p.Id)
                 .HasDefaultValueSql("gen_random_uuid()"); // Use gen_random_uuid() for PostgreSQL
 
+            modelBuilder.Entity<RefreshToken>()
+                .Property(p => p.Id)
+                .HasDefaultValueSql("gen_random_uuid()"); // Use gen_random_uuid() for PostgreSQL
+
             // Foreign Keys
             modelBuilder.Entity<User>()
                 .HasMany<Profile>(u => u.Profiles)
                 .WithOne(p => p.User)
                 .HasForeignKey(p => p.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<User>()
+                .HasMany<RefreshToken>()
+                .WithOne(rt => rt.User)
+                .HasForeignKey(rt => rt.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.Entity<StoryLanguage>()
