@@ -187,7 +187,8 @@ namespace CorrePalabras.Services
             var tokenSuffix = !string.IsNullOrEmpty(_synoToken)
                 ? $"&SynoToken={Uri.EscapeDataString(_synoToken)}"
                 : "";
-            var url = $"{_baseUrl}/webapi/entry.cgi?{apiParams}&_sid={Uri.EscapeDataString(_sid!)}{tokenSuffix}";
+            var apiParamsPrefix = string.IsNullOrEmpty(apiParams) ? "" : $"{apiParams}&";
+            var url = $"{_baseUrl}/webapi/entry.cgi?{apiParamsPrefix}_sid={Uri.EscapeDataString(_sid!)}{tokenSuffix}";
 
             using var req = new HttpRequestMessage(method, url);
             if (body != null)
@@ -292,7 +293,7 @@ namespace CorrePalabras.Services
 
         // ── Upload ────────────────────────────────────────────────────────────
 
-        private async Task<string> UploadAsync(string driveFolderPath, IFormFile file, string fileName)
+        private async Task<(string FullPath, string? FileId)> UploadAsync(string driveFolderPath, IFormFile file, string fileName)
         {
             var fullPath = $"{driveFolderPath.TrimEnd('/')}/{fileName}";
 
@@ -351,39 +352,77 @@ namespace CorrePalabras.Services
             if (!parsed.Success)
                 throw new Exception($"Upload falló (código {parsed.Error?.Code}): {raw}");
 
-            Console.WriteLine($"✅ Archivo subido: {fullPath}");
-            return fullPath;
+            string? fileId = null;
+            try
+            {
+                var root = JsonDocument.Parse(raw).RootElement;
+                if (root.TryGetProperty("data", out var data) && data.TryGetProperty("file_id", out var fid) && fid.ValueKind == JsonValueKind.String)
+                    fileId = fid.GetString();
+            }
+            catch { /* ignore — fall back to path-based share */ }
+
+            Console.WriteLine($"✅ Archivo subido: {fullPath} (file_id={fileId})");
+            return (fullPath, fileId);
         }
 
         // ── Sharing ───────────────────────────────────────────────────────────
 
-        private async Task<string> CreateShareAsync(string drivePath)
+        private async Task<string> CreateShareAsync(string drivePath, string? fileId = null)
         {
             // Try the known Drive sharing API variants in order.
             // Error 101 = invalid parameters / unknown method; try next variant.
-            var attempts = new[]
+            // The Drive web UI sends "path" as a JSON-encoded string (quotes included),
+            // and references items by id ("id:<file_id>") rather than by filesystem path —
+            // so prefer the id-based form when we have a file_id from the upload response.
+            // Confirmed via browser capture: the Drive web UI creates the share record via
+            // SYNO.SynologyDrive.AdvanceSharing (NOT SYNO.SynologyDrive.Sharing), method=create,
+            // version=1, referencing the item by id: path="id:<file_id>".
+            var idRef = !string.IsNullOrEmpty(fileId) ? $"id:{fileId}" : drivePath;
+            // Browser capture sends path WITHOUT URL-escaping inside the form body
+            // (the body is itself form-encoded by FormUrlEncodedContent), so use the raw quoted value here.
+            var rawPathValue = $"\"{idRef}\"";
+
+            // Match the browser's exact request shape: POST body (application/x-www-form-urlencoded)
+            // containing api/method/version/path, with _sid/SynoToken only in the URL query string.
+            var attempts = new List<(string queryExtra, FormUrlEncodedContent body)>
             {
-                $"api=SYNO.SynologyDrive.Sharing&version=2&method=create&path={Uri.EscapeDataString(drivePath)}",
-                $"api=SYNO.SynologyDrive.Sharing&version=1&method=create&path={Uri.EscapeDataString(drivePath)}",
-                $"api=SYNO.SynologyDrive.Sharing&version=3&method=create&path={Uri.EscapeDataString(drivePath)}",
+                ("", new FormUrlEncodedContent(new[]
+                {
+                    new KeyValuePair<string,string>("path", rawPathValue),
+                    new KeyValuePair<string,string>("api", "SYNO.SynologyDrive.AdvanceSharing"),
+                    new KeyValuePair<string,string>("method", "create"),
+                    new KeyValuePair<string,string>("version", "1"),
+                })),
             };
+
+            // Diagnostic: confirm min/max version supported for AdvanceSharing on this NAS.
+            try
+            {
+                var infoRaw = await CallAsync(HttpMethod.Get, "api=SYNO.API.Info&version=1&method=query&query=SYNO.SynologyDrive.AdvanceSharing");
+                Console.WriteLine($"[API.Info AdvanceSharing] {infoRaw}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[API.Info] error: {ex.Message}");
+            }
 
             string raw = "";
             SynologyBaseResponse? res = null;
 
-            foreach (var attempt in attempts)
+            foreach (var (queryExtra, formBody) in attempts)
             {
-                raw = await CallAsync(HttpMethod.Post, attempt);
+                raw = await CallAsync(HttpMethod.Post, queryExtra, formBody);
                 res = Parse<SynologyBaseResponse>(raw);
-                Console.WriteLine($"[Share attempt] {attempt[..Math.Min(60,attempt.Length)]} → {raw[..Math.Min(200,raw.Length)]}");
+                Console.WriteLine($"[Share attempt] body-form AdvanceSharing create → {raw}");
 
-                if (IsAuthError(res!)) { _sid = null; raw = await CallAsync(HttpMethod.Post, attempt); res = Parse<SynologyBaseResponse>(raw); }
+                if (IsAuthError(res!)) { _sid = null; raw = await CallAsync(HttpMethod.Post, queryExtra, formBody); res = Parse<SynologyBaseResponse>(raw); }
 
                 if (res?.Success == true) break;
                 if (res?.Error?.Code != 101 && res?.Error?.Code != 102 && res?.Error?.Code != 119) break; // unexpected error
             }
 
             string? shareUrl = null;
+            string? shareFileId = fileId; // fall back to the upload's file_id if the share response doesn't include one
             if (res?.Success == true)
             {
                 var root = JsonDocument.Parse(raw).RootElement;
@@ -396,12 +435,25 @@ namespace CorrePalabras.Services
                         var first = ls[0];
                         if (first.TryGetProperty("url",  out var lu)) shareUrl = lu.GetString();
                         if (shareUrl == null && first.TryGetProperty("link", out var ll)) shareUrl = ll.GetString();
+                        if (first.TryGetProperty("file_id", out var fid) && fid.ValueKind == JsonValueKind.String) shareFileId = fid.GetString();
+                        if (shareFileId == null && first.TryGetProperty("id", out var lid)) shareFileId = lid.ValueKind == JsonValueKind.String ? lid.GetString() : lid.GetRawText();
                     }
+
+                    // Some variants return the file/share id at the top level of "data"
+                    if (shareFileId == null && data.TryGetProperty("file_id", out var fid2) && fid2.ValueKind == JsonValueKind.String) shareFileId = fid2.GetString();
+                    if (shareFileId == null && data.TryGetProperty("id", out var id2)) shareFileId = id2.ValueKind == JsonValueKind.String ? id2.GetString() : id2.GetRawText();
                 }
             }
 
             if (string.IsNullOrEmpty(shareUrl))
                 throw new Exception($"Share falló: {raw}");
+
+            // Try to widen the link's access so it doesn't require a Synology login.
+            // Based on a captured browser request, Drive uses:
+            //   api=SYNO.SynologyDrive.Sharing&method=update&version=1
+            //   path="id:<fileId>"&permissions=[{"action":"update","member":{"type":"..."},"role":"viewer"}]
+            if (!string.IsNullOrEmpty(shareFileId))
+                await TrySetSharePublicAsync(shareFileId!);
 
             // Embed the file path so DeleteBySharingUrlAsync can resolve it later
             var finalUrl = shareUrl.Contains('?')
@@ -410,6 +462,49 @@ namespace CorrePalabras.Services
 
             Console.WriteLine($"✅ Share: {finalUrl}");
             return finalUrl;
+        }
+
+        /// <summary>
+        /// Attempts to widen a shared item's access level so the link works for
+        /// people who aren't logged into this Synology Drive (e.g. for use in a
+        /// public-facing frontend &lt;img&gt;). Tries "anyone" first (public,
+        /// no login required); falls back to "everyone"/"internal" (logged-in
+        /// users of this NAS) if "anyone" isn't a recognized member type.
+        /// Failures are logged but never abort the upload/share flow.
+        /// </summary>
+        private async Task TrySetSharePublicAsync(string fileId)
+        {
+            var pathValue = Uri.EscapeDataString($"\"id:{fileId}\"");
+
+            var memberTypesToTry = new[] { "anyone", "everyone", "internal" };
+
+            foreach (var memberType in memberTypesToTry)
+            {
+                var permissions = JsonSerializer.Serialize(new[]
+                {
+                    new { action = "update", member = new { type = memberType }, role = "viewer" }
+                });
+
+                var apiParams = $"api=SYNO.SynologyDrive.Sharing&method=update&version=1&path={pathValue}&permissions={Uri.EscapeDataString(permissions)}";
+
+                try
+                {
+                    var raw = await CallAsync(HttpMethod.Post, apiParams);
+                    var res = Parse<SynologyBaseResponse>(raw);
+
+                    if (IsAuthError(res!)) { _sid = null; raw = await CallAsync(HttpMethod.Post, apiParams); res = Parse<SynologyBaseResponse>(raw); }
+
+                    Console.WriteLine($"[Share permission member={memberType}] {raw[..Math.Min(300, raw.Length)]}");
+
+                    if (res?.Success == true) return; // done — link widened successfully
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Share permission member={memberType}] error: {ex.Message}");
+                }
+            }
+
+            Console.WriteLine("⚠️ No se pudo ampliar el acceso del enlace compartido (quedó con el permiso por defecto).");
         }
 
         // ── Delete ────────────────────────────────────────────────────────────
@@ -436,8 +531,8 @@ namespace CorrePalabras.Services
 
             Console.WriteLine($"[UploadAndShare] folder={destinationFolder} file={fileName}");
 
-            var drivePath = await UploadAsync(destinationFolder, file, fileName);
-            return await CreateShareAsync(drivePath);
+            var (drivePath, fileId) = await UploadAsync(destinationFolder, file, fileName);
+            return await CreateShareAsync(drivePath, fileId);
         }
 
         public async Task DeleteBySharingUrlAsync(string sharingUrl)
