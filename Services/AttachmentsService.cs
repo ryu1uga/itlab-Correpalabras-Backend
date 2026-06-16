@@ -24,34 +24,33 @@ namespace CorrePalabras.Services
 
         public async Task<IEnumerable<object>> GetAllAsync()
         {
-            return await _context.Attachments
+            var attachments = await _context.Attachments
                 .OrderBy(a => a.Id)
-                .Select(a => new
-                {
-                    a.Id,
-                    a.StoryId,
-                    a.LanguageId,
-                    a.ImageUrl,
-                    a.TypeImage,
-                    a.Position,
-                    a.OrderAttachments
-                }).ToListAsync();
+                .Select(a => new { a.Id, a.StoryId, a.LanguageId, a.TypeImage, a.Position, a.OrderAttachments })
+                .ToListAsync();
+            return attachments.Select(a => (object)new
+            {
+                a.Id, a.StoryId, a.LanguageId,
+                ImageUrl = $"/api/attachments/{a.Id}/image",
+                a.TypeImage, a.Position, a.OrderAttachments
+            });
         }
 
         public async Task<object?> GetByIdAsync(Guid id)
         {
-            return await _context.Attachments
+            var a = await _context.Attachments
                 .Where(a => a.Id == id)
-                .Select(a => new
-                {
-                    a.Id,
-                    a.StoryId,
-                    a.LanguageId,
-                    a.ImageUrl,
-                    a.TypeImage,
-                    a.Position,
-                    a.OrderAttachments
-                }).FirstOrDefaultAsync();
+                .Select(a => new { a.Id, a.StoryId, a.LanguageId, a.TypeImage, a.Position, a.OrderAttachments })
+                .FirstOrDefaultAsync();
+            if (a == null) return null;
+            return new { a.Id, a.StoryId, a.LanguageId, ImageUrl = $"/api/attachments/{a.Id}/image", a.TypeImage, a.Position, a.OrderAttachments };
+        }
+
+        public async Task<(byte[] Bytes, string ContentType)> GetImageAsync(Guid id)
+        {
+            var attachment = await _context.Attachments.FindAsync(id);
+            if (attachment == null) throw new KeyNotFoundException("Archivo no encontrado.");
+            return await _synologyService.DownloadBySharingUrlAsync(attachment.ImageUrl);
         }
 
         public async Task<string> CreateAsync(IFormFile? file, AttachmentDTO attachmentDTO)

@@ -24,18 +24,28 @@ namespace CorrePalabras.Services
 
         public async Task<IEnumerable<object>> GetAllAsync()
         {
-            return await _context.Pages
+            var pages = await _context.Pages
                 .OrderBy(p => p.Id)
-                .Select(p => new { p.Id, p.StoryId, p.PageOrder, p.ImageUrl })
+                .Select(p => new { p.Id, p.StoryId, p.PageOrder })
                 .ToListAsync();
+            return pages.Select(p => (object)new { p.Id, p.StoryId, p.PageOrder, ImageUrl = $"/api/pages/{p.Id}/image" });
         }
 
         public async Task<PageDTO?> GetByIdAsync(Guid id)
         {
-            return await _context.Pages
+            var p = await _context.Pages
                 .Where(p => p.Id == id)
-                .Select(p => new PageDTO { Id = p.Id, StoryId = p.StoryId, PageOrder = p.PageOrder, ImageUrl = p.ImageUrl })
+                .Select(p => new { p.Id, p.StoryId, p.PageOrder })
                 .FirstOrDefaultAsync();
+            if (p == null) return null;
+            return new PageDTO { Id = p.Id, StoryId = p.StoryId, PageOrder = p.PageOrder, ImageUrl = $"/api/pages/{p.Id}/image" };
+        }
+
+        public async Task<(byte[] Bytes, string ContentType)> GetImageAsync(Guid id)
+        {
+            var page = await _context.Pages.FindAsync(id);
+            if (page == null) throw new KeyNotFoundException("Página no encontrada.");
+            return await _synologyService.DownloadBySharingUrlAsync(page.ImageUrl);
         }
 
         public async Task<PageDTO> CreateAsync(PageDTO pageDTO, IFormFile? imageFile)

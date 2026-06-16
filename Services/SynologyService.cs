@@ -107,7 +107,7 @@ namespace CorrePalabras.Services
                     ? string.Join("; ", preflight.Select(kv => $"{kv.Key}={kv.Value}"))
                     : "";
 
-                foreach (var authBase in new[] { _dsmBaseUrl, _baseUrl })
+                foreach (var authBase in new[] { _baseUrl })
                 {
                     var url = $"{authBase}/webapi/auth.cgi{authSuffix}";
                     Console.WriteLine($"[Login] Trying {authBase}/webapi/auth.cgi …");
@@ -571,15 +571,138 @@ namespace CorrePalabras.Services
             if (!filePath.StartsWith("/team-folders", StringComparison.OrdinalIgnoreCase))
                 filePath = $"/team-folders{(filePath.StartsWith('/') ? "" : "/")}{filePath}";
 
-            await EnsureSessionAsync();
-            var url = $"{_baseUrl}/webapi/entry.cgi" +
-                      $"?api=SYNO.SynologyDrive.Files&version=2&method=download" +
-                      $"&path={Uri.EscapeDataString(filePath)}" +
-                      $"&_sid={Uri.EscapeDataString(_sid!)}";
+            // Limpiar sufijo /download de entradas antiguas en BD
+            if (filePath.EndsWith("/download", StringComparison.OrdinalIgnoreCase))
+                filePath = filePath[..^"/download".Length];
 
-            var res = await _httpClient.GetAsync(url);
-            res.EnsureSuccessStatusCode();
-            return await res.Content.ReadAsByteArrayAsync();
+            await EnsureSessionAsync();
+
+            var pathJson = $"[\"{filePath.Replace("\"", "\\\"")}\"]";
+            var tokenSuffix = !string.IsNullOrEmpty(_synoToken)
+                ? $"&SynoToken={Uri.EscapeDataString(_synoToken)}"
+                : "";
+
+            // Intentar primero con SYNO.FileStation.Download (más compatible)
+            // y si falla, intentar con SYNO.SynologyDrive.Files
+            var candidates = new[]
+            {
+                $"{_baseUrl}/webapi/entry.cgi?api=SYNO.FileStation.Download&version=2&method=download&path={Uri.EscapeDataString(pathJson)}&mode=download&_sid={Uri.EscapeDataString(_sid!)}{tokenSuffix}",
+                $"{_baseUrl}/webapi/entry.cgi?api=SYNO.SynologyDrive.Files&version=2&method=download&path={Uri.EscapeDataString(pathJson)}&_sid={Uri.EscapeDataString(_sid!)}{tokenSuffix}",
+                $"{_baseUrl}/webapi/entry.cgi?api=SYNO.SynologyDrive.Files&version=3&method=download&path={Uri.EscapeDataString(pathJson)}&_sid={Uri.EscapeDataString(_sid!)}{tokenSuffix}",
+            };
+
+            foreach (var url in candidates)
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                if (!string.IsNullOrEmpty(_cookieHeader))
+                    req.Headers.TryAddWithoutValidation("Cookie", _cookieHeader);
+                if (!string.IsNullOrEmpty(_synoToken))
+                    req.Headers.TryAddWithoutValidation("X-Syno-Token", _synoToken);
+
+                Console.WriteLine($"[Download] Trying: {url[..Math.Min(120, url.Length)]}...");
+                var res = await _httpClient.SendAsync(req);
+                var body = await res.Content.ReadAsByteArrayAsync();
+                var bodyPreview = System.Text.Encoding.UTF8.GetString(body, 0, Math.Min(300, body.Length));
+                Console.WriteLine($"[Download] HTTP {(int)res.StatusCode} ContentType={res.Content.Headers.ContentType} Body={bodyPreview}");
+
+                if (res.IsSuccessStatusCode && res.Content.Headers.ContentType?.MediaType?.StartsWith("image") == true)
+                    return body;
+                if (res.IsSuccessStatusCode && res.Content.Headers.ContentType?.MediaType?.StartsWith("application/octet-stream") == true)
+                    return body;
+                // Si la respuesta es binaria grande (no JSON), asumimos que es el archivo
+                if (res.IsSuccessStatusCode && body.Length > 1024 && !bodyPreview.TrimStart().StartsWith("{"))
+                    return body;
+            }
+
+            throw new Exception($"No se pudo descargar '{filePath}' con ningún método disponible.");
+        }
+
+        public async Task<(byte[] Bytes, string ContentType)> DownloadBySharingUrlAsync(string sharingUrl)
+        {
+            await EnsureSessionAsync();
+
+            // Shard.init (sharing_token) solo lo necesita el browser anónimo.
+            // Nosotros ya tenemos sesión admin (_sid), así que llamamos get_thumbnail
+            // directamente en /drive/webapi/entry.cgi — sin pasar por el endpoint de sharing.
+            // Flujo:
+            //   1. GET /drive/webapi/entry.cgi?method=get&path={filePath} → file_id + sync_id
+            //   2. GET /drive/webapi/entry.cgi?method=get_thumbnail&path="id:{fileId}"&... → bytes
+
+            var filePath = ExtractPathFromUrl(sharingUrl) ?? "";
+            if (filePath.EndsWith("/download", StringComparison.OrdinalIgnoreCase))
+                filePath = filePath[..^"/download".Length];
+            if (!filePath.StartsWith("/team-folders", StringComparison.OrdinalIgnoreCase))
+                filePath = $"/team-folders{(filePath.StartsWith('/') ? "" : "/")}{filePath}";
+
+            var ext = Path.GetExtension(filePath).ToLowerInvariant();
+            var fallbackCt = ext switch
+            {
+                ".png"  => "image/png",
+                ".jpg"  => "image/jpeg",
+                ".jpeg" => "image/jpeg",
+                ".gif"  => "image/gif",
+                ".webp" => "image/webp",
+                _       => "application/octet-stream"
+            };
+
+            // ── Paso 1: method=get → file_id + sync_id ──────────────────────────
+            Console.WriteLine($"[DownloadShare] Paso 1: get file_id para {filePath}");
+            string fileId;
+            string versionId;
+            {
+                var url = $"{_baseUrl}/webapi/entry.cgi?api=SYNO.SynologyDrive.Files&version=2&method=get" +
+                          $"&path={Uri.EscapeDataString(filePath)}" +
+                          $"&_sid={Uri.EscapeDataString(_sid!)}&SynoToken={Uri.EscapeDataString(_synoToken!)}";
+                using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                if (!string.IsNullOrEmpty(_cookieHeader))
+                    req.Headers.TryAddWithoutValidation("Cookie", _cookieHeader);
+                if (!string.IsNullOrEmpty(_synoToken))
+                    req.Headers.TryAddWithoutValidation("X-Syno-Token", _synoToken);
+
+                var res = await _httpClient.SendAsync(req);
+                var body = await res.Content.ReadAsStringAsync();
+                Console.WriteLine($"[GetFileId] HTTP {(int)res.StatusCode} Body={body[..Math.Min(200, body.Length)]}");
+
+                using var doc = JsonDocument.Parse(body);
+                var root = doc.RootElement;
+                if (!root.TryGetProperty("success", out var ok) || !ok.GetBoolean())
+                    throw new Exception($"method=get falló: {body[..Math.Min(200, body.Length)]}");
+
+                var data = root.GetProperty("data");
+                fileId = data.GetProperty("file_id").GetString()!;
+                versionId = data.TryGetProperty("sync_id", out var sp)
+                    ? sp.GetInt64().ToString()
+                    : data.TryGetProperty("version_id", out var vp) ? vp.ToString() : "1";
+            }
+
+            // ── Paso 2: get_thumbnail con sesión admin (sin sharing_token) ────────
+            Console.WriteLine($"[DownloadShare] Paso 2: get_thumbnail file_id={fileId} version_id={versionId}");
+
+            var thumbUrl = $"{_baseUrl}/webapi/entry.cgi"
+                + $"?api=SYNO.SynologyDrive.Files&method=get_thumbnail&version=2"
+                + $"&path={Uri.EscapeDataString($"\"id:{fileId}\"")}"
+                + $"&animate=true"
+                + $"&size={Uri.EscapeDataString("\"large\"")}"
+                + $"&version_id={Uri.EscapeDataString($"\"{versionId}\"")}"
+                + $"&online_convert=false&is_preview=true"
+                + $"&_sid={Uri.EscapeDataString(_sid!)}&SynoToken={Uri.EscapeDataString(_synoToken!)}";
+
+            using var thumbReq = new HttpRequestMessage(HttpMethod.Get, thumbUrl);
+            if (!string.IsNullOrEmpty(_cookieHeader))
+                thumbReq.Headers.TryAddWithoutValidation("Cookie", _cookieHeader);
+            if (!string.IsNullOrEmpty(_synoToken))
+                thumbReq.Headers.TryAddWithoutValidation("X-Syno-Token", _synoToken);
+
+            var thumbRes = await _httpClient.SendAsync(thumbReq);
+            var thumbBody = await thumbRes.Content.ReadAsByteArrayAsync();
+            var thumbCt = thumbRes.Content.Headers.ContentType?.MediaType ?? "";
+            var preview = System.Text.Encoding.UTF8.GetString(thumbBody, 0, Math.Min(200, thumbBody.Length));
+            Console.WriteLine($"[get_thumbnail] HTTP {(int)thumbRes.StatusCode} ContentType={thumbCt} Size={thumbBody.Length} Preview={preview[..Math.Min(100, preview.Length)]}");
+
+            if (thumbRes.IsSuccessStatusCode && !thumbCt.Contains("html") && thumbBody.Length > 100)
+                return (thumbBody, string.IsNullOrEmpty(thumbCt) ? fallbackCt : thumbCt);
+
+            throw new Exception($"get_thumbnail falló: HTTP {(int)thumbRes.StatusCode} — {preview[..Math.Min(100, preview.Length)]}");
         }
 
         // ── DTOs ──────────────────────────────────────────────────────────────

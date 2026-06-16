@@ -36,6 +36,19 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(data);
         }
 
+        [HttpGet("{id}/image")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetPageImage(Guid id)
+        {
+            try
+            {
+                var (bytes, contentType) = await _service.GetImageAsync(id);
+                return File(bytes, contentType);
+            }
+            catch (KeyNotFoundException) { return NotFound(); }
+            catch (Exception ex) { return StatusCode(500, ex.Message); }
+        }
+
         [HttpPost]
         public async Task<IActionResult> CreatePage([FromForm] PageDTO pageDTO, [FromForm] IFormFile? imageFile, [FromHeader(Name = "UserId")] Guid userId)
         {

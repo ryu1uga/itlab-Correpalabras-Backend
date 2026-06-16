@@ -21,11 +21,25 @@ namespace CorrePalabras.Services
             _synologyService = synologyService;
         }
 
-        public async Task<IEnumerable<object>> GetAllAsync() => 
-            await _context.Avatars.OrderBy(a => a.Id).Select(a => new { a.Id, a.StoryId, a.AvatarUrl }).ToListAsync();
+        public async Task<IEnumerable<object>> GetAllAsync()
+        {
+            var avatars = await _context.Avatars.OrderBy(a => a.Id).ToListAsync();
+            return avatars.Select(a => (object)new { a.Id, a.StoryId, AvatarUrl = $"/api/avatars/{a.Id}/image" });
+        }
 
-        public async Task<object?> GetByIdAsync(Guid id) => 
-            await _context.Avatars.Where(a => a.Id == id).Select(a => new { a.Id, a.StoryId, a.AvatarUrl }).FirstOrDefaultAsync();
+        public async Task<object?> GetByIdAsync(Guid id)
+        {
+            var avatar = await _context.Avatars.Where(a => a.Id == id).FirstOrDefaultAsync();
+            if (avatar == null) return null;
+            return new { avatar.Id, avatar.StoryId, AvatarUrl = $"/api/avatars/{avatar.Id}/image" };
+        }
+
+        public async Task<(byte[] Bytes, string ContentType)> GetImageAsync(Guid id)
+        {
+            var avatar = await _context.Avatars.FindAsync(id);
+            if (avatar == null) throw new KeyNotFoundException("Avatar no encontrado.");
+            return await _synologyService.DownloadBySharingUrlAsync(avatar.AvatarUrl);
+        }
 
         public async Task<string> CreateAsync(IFormFile avatarImage, Guid? storyId)
         {

@@ -15,6 +15,7 @@ namespace CorrePalabras.Services.Interfaces
         Task<IEnumerable<object>> GetMostReadAsync();
         Task<IEnumerable<object>> GetMostReadByAgeRangeAsync(int minAge, int maxAge);
         Task<IEnumerable<object>> GetMostReadByGenderAsync(string gender);
+        Task<(byte[] Bytes, string ContentType)> GetImageAsync(Guid id);
         Task<StoryDTO> CreateAsync(StoryDTO storyDTO, IFormFile thumbnail);
         Task<string> UpdateAsync(Guid id, StoryDTO storyDTO, IFormFile? thumbnail);
         Task<string> DeleteAsync(Guid id);

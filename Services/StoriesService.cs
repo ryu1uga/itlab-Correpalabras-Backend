@@ -26,13 +26,12 @@ namespace CorrePalabras.Services
         {
             var spanish = await _context.Languages.FirstOrDefaultAsync(l => l.Name.ToLower() == "español");
 
-            return await _context.Stories
+            var stories = await _context.Stories
                 .OrderBy(s => s.Id)
                 .Select(s => new
                 {
                     s.Id,
                     s.Title,
-                    s.Thumbnail,
                     StoryCategories = s.StoryCategories
                         .Where(sc => sc.Category.Code != "INV")
                         .Select(sc => new { sc.CategoryId }).ToList(),
@@ -40,6 +39,22 @@ namespace CorrePalabras.Services
                         ? s.Pages.SelectMany(p => p.PageContents).Where(pc => pc.LanguageId == spanish.Id).Sum(pc => pc.CountWords)
                         : s.Pages.SelectMany(p => p.PageContents).GroupBy(pc => pc.LanguageId).Select(g => g.Sum(pc => pc.CountWords)).FirstOrDefault()
                 }).ToListAsync();
+
+            return stories.Select(s => (object)new
+            {
+                s.Id,
+                s.Title,
+                Thumbnail = $"/api/stories/{s.Id}/image",
+                s.StoryCategories,
+                s.TotalWords
+            });
+        }
+
+        public async Task<(byte[] Bytes, string ContentType)> GetImageAsync(Guid id)
+        {
+            var story = await _context.Stories.FindAsync(id);
+            if (story == null) throw new KeyNotFoundException("Cuento no encontrado.");
+            return await _synologyService.DownloadBySharingUrlAsync(story.Thumbnail);
         }
 
         public async Task<object?> GetByIdAsync(Guid id, Guid userId)
@@ -66,15 +81,18 @@ namespace CorrePalabras.Services
                 story.Illustrator,
                 story.Title,
                 story.CountPages,
-                story.Thumbnail,
+                Thumbnail = $"/api/stories/{story.Id}/image",
                 story.UpdatedAt,
                 StoryCategories = story.StoryCategories.Where(sc => sc.Category.Code != "INV").Select(sc => new { sc.Id, sc.CategoryId }).ToList(),
                 StoryLanguages = story.StoryLanguages.Select(sl => new { sl.Id, sl.LanguageId }).ToList(),
                 Pages = story.Pages.Select(p => new {
-                    p.Id, p.PageOrder, p.ImageUrl,
+                    p.Id, p.PageOrder,
+                    ImageUrl = $"/api/pages/{p.Id}/image",
                     PageContents = p.PageContents.Select(pc => new { pc.Id, pc.PageId, pc.LanguageId, pc.CountWords, pc.Content }).ToList()
                 }).ToList(),
-                Attachments = story.Attachments.Select(a => new { a.Id, a.ImageUrl, a.TypeImage, a.Position, a.OrderAttachments, a.LanguageId }).ToList()
+                Attachments = story.Attachments.Select(a => new { a.Id,
+                    ImageUrl = $"/api/attachments/{a.Id}/image",
+                    a.TypeImage, a.Position, a.OrderAttachments, a.LanguageId }).ToList()
             };
         }
 
@@ -90,16 +108,24 @@ namespace CorrePalabras.Services
                 _ => query.OrderBy(s => s.Pages.SelectMany(p => p.PageContents).Sum(pc => pc.CountWords))
             };
 
-            return await query.Select(s => new {
-                s.Id, s.Author, s.Illustrator, s.Title, s.CountPages, s.Thumbnail, s.UpdatedAt,
+            var results = await query.Select(s => new {
+                s.Id, s.Author, s.Illustrator, s.Title, s.CountPages, s.UpdatedAt,
                 StoryCategories = s.StoryCategories.Select(sc => new { sc.CategoryId }).ToList(),
                 StoryLanguages = s.StoryLanguages.Select(sl => new { sl.LanguageId }).ToList(),
                 Pages = s.Pages.Select(p => new {
-                    p.Id, p.PageOrder, p.ImageUrl,
+                    p.Id, p.PageOrder,
                     PageContents = p.PageContents.Select(pc => new { pc.Id, pc.PageId, pc.LanguageId, pc.CountWords, pc.Content }).ToList()
                 }).ToList(),
-                Attachments = s.Attachments.Select(a => new { a.Id, a.ImageUrl, a.TypeImage, a.Position, a.OrderAttachments }).ToList()
+                Attachments = s.Attachments.Select(a => new { a.Id, a.TypeImage, a.Position, a.OrderAttachments }).ToList()
             }).ToListAsync();
+
+            return results.Select(s => (object)new {
+                s.Id, s.Author, s.Illustrator, s.Title, s.CountPages,
+                Thumbnail = $"/api/stories/{s.Id}/image",
+                s.UpdatedAt, s.StoryCategories, s.StoryLanguages,
+                Pages = s.Pages.Select(p => new { p.Id, p.PageOrder, ImageUrl = $"/api/pages/{p.Id}/image", p.PageContents }).ToList(),
+                Attachments = s.Attachments.Select(a => new { a.Id, ImageUrl = $"/api/attachments/{a.Id}/image", a.TypeImage, a.Position, a.OrderAttachments }).ToList()
+            });
         }
 
         public async Task<object?> GetRandomStoryAsync()
@@ -109,10 +135,12 @@ namespace CorrePalabras.Services
             if (count == 0) return null;
 
             int index = new Random().Next(0, count);
-            return await query.Skip(index).Take(1).Select(s => new {
-                s.Id, s.Title, s.Thumbnail,
+            var s = await query.Skip(index).Take(1).Select(s => new {
+                s.Id, s.Title,
                 StoryCategories = s.StoryCategories.Select(sc => new { sc.CategoryId }).ToList()
             }).FirstOrDefaultAsync();
+            if (s == null) return null;
+            return new { s.Id, s.Title, Thumbnail = $"/api/stories/{s.Id}/image", s.StoryCategories };
         }
 
         public async Task<IEnumerable<object>> GetMostReadAsync() => 

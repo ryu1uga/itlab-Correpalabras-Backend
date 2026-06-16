@@ -6,5 +6,6 @@ namespace CorrePalabras.Services.Interfaces
         Task DeleteBySharingUrlAsync(string sharingUrl);
         Task DeleteByPathAsync(string filePath);
         Task<byte[]> DownloadFileAsync(string filePath);
+        Task<(byte[] Bytes, string ContentType)> DownloadBySharingUrlAsync(string sharingUrl);
     }
 }

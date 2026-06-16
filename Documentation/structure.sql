@@ -305,12 +305,10 @@ ALTER TABLE ONLY public."StoryLanguage"
 
 
 ALTER TABLE ONLY public."UnlockedAvatar"
-    ADD CONSTRAINT "FK_Profile_UnlockedAvatar" FOREIGN KEY ("Pr
+    ADD CONSTRAINT "FK_Profile_UnlockedAvatar" FOREIGN KEY ("ProfileId") REFERENCES public."Profile" ("Id") ON DELETE CASCADE;
 
 ALTER TABLE ONLY public."RefreshToken"
     ADD CONSTRAINT "FK_RefreshToken_User" FOREIGN KEY ("UserId") REFERENCES public."User" ("Id") ON DELETE CASCADE;
-REIGN KEY ("AvatarId") REFERENCES public."Avatar" ("Id") ON DELETE CASCADE;
-
 
 ALTER TABLE ONLY public."UnlockedBadge"
     ADD CONSTRAINT "FK_Profile_UnlockedBadge" FOREIGN KEY ("ProfileId") REFERENCES public."Profile" ("Id") ON DELETE CASCADE;

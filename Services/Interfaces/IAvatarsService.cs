@@ -9,6 +9,7 @@ namespace CorrePalabras.Services.Interfaces
     {
         Task<IEnumerable<object>> GetAllAsync();
         Task<object?> GetByIdAsync(Guid id);
+        Task<(byte[] Bytes, string ContentType)> GetImageAsync(Guid id);
         Task<string> CreateAsync(IFormFile avatarImage, Guid? storyId);
         Task<string> UpdateAsync(Guid id, IFormFile? avatarImage, Guid? storyId);
         Task<string> DeleteAsync(Guid id);
