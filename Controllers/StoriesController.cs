@@ -60,11 +60,11 @@ namespace CorrePalabras.Controllers
         }
 
         [HttpGet("random")]
-        public async Task<IActionResult> GetRandom([FromHeader] Guid userId)
+        [AllowAnonymous]
+        public async Task<IActionResult> GetRandom()
         {
             var data = await _service.GetRandomStoryAsync();
-            if (data == null) return NotFoundResponse("No se encontraron cuentos INV.");
-            
+            if (data == null) return NotFoundResponse("No se encontraron cuentos.");
             return SuccessResponse(data);
         }
 

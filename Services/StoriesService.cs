@@ -131,17 +131,45 @@ namespace CorrePalabras.Services
 
         public async Task<object?> GetRandomStoryAsync()
         {
-            var query = _context.Stories.Where(s => s.StoryCategories.Any(sc => sc.Category.Code == "INV"));
-            int count = await query.CountAsync();
+            int count = await _context.Stories.CountAsync();
             if (count == 0) return null;
 
             int index = new Random().Next(0, count);
-            var s = await query.Skip(index).Take(1).Select(s => new {
-                s.Id, s.Title,
-                StoryCategories = s.StoryCategories.Select(sc => new { sc.CategoryId }).ToList()
-            }).FirstOrDefaultAsync();
-            if (s == null) return null;
-            return new { s.Id, s.Title, Thumbnail = $"/api/stories/{s.Id}/image", s.StoryCategories };
+            var story = await _context.Stories
+                .Include(s => s.StoryCategories).ThenInclude(sc => sc.Category)
+                .Include(s => s.StoryLanguages)
+                .Include(s => s.Pages).ThenInclude(p => p.PageContents)
+                .Include(s => s.Attachments)
+                .Skip(index)
+                .FirstOrDefaultAsync();
+
+            if (story == null) return null;
+
+            story.Counter++;
+            await _context.SaveChangesAsync();
+
+            return new
+            {
+                story.Id,
+                story.Author,
+                story.Illustrator,
+                story.Title,
+                story.CountPages,
+                Thumbnail = $"/api/stories/{story.Id}/image",
+                story.UpdatedAt,
+                StoryCategories = story.StoryCategories.Where(sc => sc.Category.Code != "INV").Select(sc => new { sc.Id, sc.CategoryId }).ToList(),
+                StoryLanguages  = story.StoryLanguages.Select(sl => new { sl.Id, sl.LanguageId }).ToList(),
+                Pages = story.Pages.Select(p => new {
+                    p.Id, p.PageOrder,
+                    ImageUrl     = $"/api/pages/{p.Id}/image",
+                    PageContents = p.PageContents.Select(pc => new { pc.Id, pc.PageId, pc.LanguageId, pc.CountWords, pc.Content }).ToList()
+                }).ToList(),
+                Attachments = story.Attachments.Select(a => new {
+                    a.Id,
+                    ImageUrl = $"/api/attachments/{a.Id}/image",
+                    a.TypeImage, a.Position, a.OrderAttachments, a.LanguageId
+                }).ToList()
+            };
         }
 
         public async Task<IEnumerable<object>> GetMostReadAsync() => 
