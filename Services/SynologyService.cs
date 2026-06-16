@@ -551,26 +551,41 @@ namespace CorrePalabras.Services
 
         public async Task DeleteByPathAsync(string filePath)
         {
+            await EnsureSessionAsync();
+
             if (!filePath.StartsWith("/team-folders", StringComparison.OrdinalIgnoreCase))
                 filePath = $"/team-folders{(filePath.StartsWith('/') ? "" : "/")}{filePath}";
 
-            // El path va en el body como form-encoded (igual que CreateShareAsync).
-            // Enviarlo en el query string produce error 101.
-            var pathJson = $"[\"{filePath.Replace("\"", "\\\"")}\"]";
-            var formBody = new FormUrlEncodedContent(new[]
+            // Paso 1: method=get para obtener file_id (usando CallAsync, igual que DownloadBySharingUrlAsync).
+            Console.WriteLine($"[Delete] Obteniendo file_id para {filePath}");
+            var getRaw = await CallAsync(HttpMethod.Get,
+                $"api=SYNO.SynologyDrive.Files&version=2&method=get&path={Uri.EscapeDataString(filePath)}");
+
+            using var getDoc = JsonDocument.Parse(getRaw);
+            var getRoot = getDoc.RootElement;
+            if (!getRoot.TryGetProperty("success", out var ok) || !ok.GetBoolean())
+                throw new Exception($"Delete: no se pudo obtener file_id para '{filePath}': {getRaw[..Math.Min(200, getRaw.Length)]}");
+
+            var fileId = getRoot.GetProperty("data").GetProperty("file_id").GetString()!;
+            Console.WriteLine($"[Delete] file_id={fileId}");
+
+            // Paso 2: delete usando el parámetro correcto: "files" (no "path"), valor ["id:xxx"]
+            var deleteBody = new FormUrlEncodedContent(new[]
             {
-                new KeyValuePair<string, string>("api",     "SYNO.SynologyDrive.Files"),
-                new KeyValuePair<string, string>("version", "2"),
-                new KeyValuePair<string, string>("method",  "delete"),
-                new KeyValuePair<string, string>("path",    pathJson),
+                new KeyValuePair<string, string>("api",       "SYNO.SynologyDrive.Files"),
+                new KeyValuePair<string, string>("version",   "2"),
+                new KeyValuePair<string, string>("method",    "delete"),
+                new KeyValuePair<string, string>("files",     $"[\"id:{fileId}\"]"),
+                new KeyValuePair<string, string>("revisions", "1"),
+                new KeyValuePair<string, string>("permanent", "false"),
             });
-
-            var raw = await CallAsync(HttpMethod.Post, "", formBody);
+            var raw = await CallAsync(HttpMethod.Post, "", deleteBody);
             var res = Parse<SynologyBaseResponse>(raw);
-            if (IsAuthError(res!)) { _sid = null; await DeleteByPathAsync(filePath); return; }
-            if (!res!.Success) throw new Exception($"Delete falló (código {res.Error?.Code}): {raw}");
+            Console.WriteLine($"[Delete] files=[id:{fileId}] → code={res?.Error?.Code} success={res?.Success}");
 
-            Console.WriteLine($"✅ Eliminado: {filePath}");
+            if (IsAuthError(res!)) { _sid = null; await DeleteByPathAsync(filePath); return; }
+            if (res?.Success != true) throw new Exception($"Delete falló (código {res?.Error?.Code}): {raw}");
+            Console.WriteLine($"✅ Eliminado: {filePath} (file_id={fileId})");
         }
 
         public async Task<byte[]> DownloadFileAsync(string filePath)

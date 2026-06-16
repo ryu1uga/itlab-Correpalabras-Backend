@@ -212,25 +212,22 @@ namespace CorrePalabras.Services
         public async Task<string> DeleteAsync(Guid id)
         {
             var story = await _context.Stories
-                .Include(s => s.Pages).Include(s => s.StoryCategories)
-                .Include(s => s.StoryLanguages).Include(s => s.Attachments)
+                .Include(s => s.StoryCategories)
+                .Include(s => s.StoryLanguages)
                 .FirstOrDefaultAsync(s => s.Id == id);
 
             if (story == null) throw new KeyNotFoundException();
 
-            if (!string.IsNullOrEmpty(story.Thumbnail)) 
+            // Elimina la carpeta entera de la historia en Synology Drive de un golpe.
+            // Contiene thumbnail, páginas y attachments: /CPAPPDEV/img/stories/{id}
+            try
             {
-                await _synologyService.DeleteBySharingUrlAsync(story.Thumbnail);
+                await _synologyService.DeleteByPathAsync($"/CPAPPDEV/img/stories/{id}");
             }
-
-            foreach (var p in story.Pages.Where(p => !string.IsNullOrEmpty(p.ImageUrl))) 
+            catch (Exception ex)
             {
-                await _synologyService.DeleteBySharingUrlAsync(p.ImageUrl);
-            }
-
-            foreach (var a in story.Attachments.Where(a => !string.IsNullOrEmpty(a.ImageUrl))) 
-            {
-                await _synologyService.DeleteBySharingUrlAsync(a.ImageUrl);
+                // Si la carpeta no existe o ya fue borrada, no bloqueamos la eliminación en BD.
+                Console.WriteLine($"[DeleteStory] Aviso: no se pudo eliminar carpeta en Synology: {ex.Message}");
             }
 
             _context.Stories.Remove(story);
