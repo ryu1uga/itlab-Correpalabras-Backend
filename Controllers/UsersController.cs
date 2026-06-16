@@ -127,6 +127,23 @@ namespace CorrePalabras.Controllers
         }
 
         [Authorize]
+        [HttpPut("{id}/role")]
+        public async Task<IActionResult> UpdateRole(Guid id, [FromBody] int userType)
+        {
+            var callerType = User.FindFirstValue("userType");
+            if (callerType != "1")
+                return StatusCode(403, new { message = "Solo un administrador puede cambiar roles." });
+
+            try
+            {
+                var result = await _service.UpdateRoleAsync(id, userType);
+                return SuccessResponse(result);
+            }
+            catch (KeyNotFoundException) { return NotFoundResponse("Usuario no encontrado."); }
+            catch (Exception ex)         { return ErrorResponse(ex.Message); }
+        }
+
+        [Authorize]
         [HttpDelete]
         public async Task<IActionResult> Delete([FromBody] EmailVerificationDTO dto)
         {

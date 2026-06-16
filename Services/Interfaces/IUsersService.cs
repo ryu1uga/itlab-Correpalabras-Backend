@@ -13,6 +13,7 @@ namespace CorrePalabras.Services.Interfaces
         Task<int> GetTotalCountAsync();
         Task<string> CreateAsync(UserDTO dto);
         Task<string> UpdateAsync(Guid id, UserDTO dto);
+        Task<string> UpdateRoleAsync(Guid id, int userType);
         Task<string> DeleteAsync(EmailVerificationDTO dto);
         Task<object?> LoginAsync(LoginRequestDTO dto, bool isAdmin);
         Task<object?> RefreshTokenAsync(RefreshTokenRequestDTO dto);

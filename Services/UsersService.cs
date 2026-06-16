@@ -104,6 +104,18 @@ namespace CorrePalabras.Services
             return "Valores actualizados correctamente.";
         }
 
+        public async Task<string> UpdateRoleAsync(Guid id, int userType)
+        {
+            var user = await _context.Users.FindAsync(id);
+            if (user == null) throw new KeyNotFoundException("Usuario no encontrado.");
+
+            user.UserType  = userType;
+            user.UpdatedAt = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+            return "Rol actualizado correctamente.";
+        }
+
         public async Task<string> DeleteAsync(EmailVerificationDTO dto)
         {
             var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == dto.Email);
