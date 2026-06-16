@@ -17,7 +17,7 @@ CREATE TABLE public."Attachment" (
     "Id" uuid NOT NULL,
     "StoryId" uuid NOT NULL,
     "LanguageId" uuid NOT NULL,
-    "ImageUrl" character varying (255) NOT NULL,
+    "ImageUrl" text NOT NULL,
     "TypeImage" character varying (255) NOT NULL,
     "Position" character varying (255) NOT NULL,
     "OrderAttachments" integer NOT NULL
@@ -28,7 +28,7 @@ ALTER TABLE public."Attachment" OWNER TO correpalabras;
 CREATE TABLE public."Avatar" (
     "Id" uuid NOT NULL,
     "StoryId" uuid,
-    "AvatarUrl" character varying (255) NOT NULL
+    "AvatarUrl" text NOT NULL
 );
 
 ALTER TABLE public."Avatar" OWNER TO correpalabras;
@@ -68,7 +68,7 @@ CREATE TABLE public."Page" (
     "Id" uuid NOT NULL,
     "StoryId" uuid NOT NULL,
     "PageOrder" integer NOT NULL,
-    "ImageUrl" character varying (255) NOT NULL
+    "ImageUrl" text NOT NULL
 );
 
 ALTER TABLE public."Page" OWNER TO correpalabras;
@@ -116,7 +116,7 @@ CREATE TABLE public."Story" (
     "Illustrator" varchar NOT NULL,
     "Title" varchar NOT NULL,
     "CountPages" integer NOT NULL,
-    "Thumbnail" varchar NOT NULL,
+    "Thumbnail" text NOT NULL,
     "UpdatedAt" timestamp with time zone NOT NULL,
     "Counter" integer NOT NULL
 );
@@ -307,8 +307,10 @@ ALTER TABLE ONLY public."StoryLanguage"
 ALTER TABLE ONLY public."UnlockedAvatar"
     ADD CONSTRAINT "FK_Profile_UnlockedAvatar" FOREIGN KEY ("ProfileId") REFERENCES public."Profile" ("Id") ON DELETE CASCADE;
 
+
 ALTER TABLE ONLY public."RefreshToken"
     ADD CONSTRAINT "FK_RefreshToken_User" FOREIGN KEY ("UserId") REFERENCES public."User" ("Id") ON DELETE CASCADE;
+
 
 ALTER TABLE ONLY public."UnlockedBadge"
     ADD CONSTRAINT "FK_Profile_UnlockedBadge" FOREIGN KEY ("ProfileId") REFERENCES public."Profile" ("Id") ON DELETE CASCADE;

@@ -50,6 +50,7 @@ namespace CorrePalabras.Services
         {
             var attachment = await _context.Attachments.FindAsync(id);
             if (attachment == null) throw new KeyNotFoundException("Archivo no encontrado.");
+            if (string.IsNullOrEmpty(attachment.ImageUrl)) throw new KeyNotFoundException("Este archivo no tiene imagen.");
             return await _synologyService.DownloadBySharingUrlAsync(attachment.ImageUrl);
         }
 

@@ -554,11 +554,18 @@ namespace CorrePalabras.Services
             if (!filePath.StartsWith("/team-folders", StringComparison.OrdinalIgnoreCase))
                 filePath = $"/team-folders{(filePath.StartsWith('/') ? "" : "/")}{filePath}";
 
+            // El path va en el body como form-encoded (igual que CreateShareAsync).
+            // Enviarlo en el query string produce error 101.
             var pathJson = $"[\"{filePath.Replace("\"", "\\\"")}\"]";
-            var raw = await CallAsync(HttpMethod.Post,
-                $"api=SYNO.SynologyDrive.Files&version=2&method=delete" +
-                $"&path={Uri.EscapeDataString(pathJson)}");
+            var formBody = new FormUrlEncodedContent(new[]
+            {
+                new KeyValuePair<string, string>("api",     "SYNO.SynologyDrive.Files"),
+                new KeyValuePair<string, string>("version", "2"),
+                new KeyValuePair<string, string>("method",  "delete"),
+                new KeyValuePair<string, string>("path",    pathJson),
+            });
 
+            var raw = await CallAsync(HttpMethod.Post, "", formBody);
             var res = Parse<SynologyBaseResponse>(raw);
             if (IsAuthError(res!)) { _sid = null; await DeleteByPathAsync(filePath); return; }
             if (!res!.Success) throw new Exception($"Delete falló (código {res.Error?.Code}): {raw}");

@@ -54,6 +54,7 @@ namespace CorrePalabras.Services
         {
             var story = await _context.Stories.FindAsync(id);
             if (story == null) throw new KeyNotFoundException("Cuento no encontrado.");
+            if (string.IsNullOrEmpty(story.Thumbnail)) throw new KeyNotFoundException("Este cuento no tiene imagen.");
             return await _synologyService.DownloadBySharingUrlAsync(story.Thumbnail);
         }
 

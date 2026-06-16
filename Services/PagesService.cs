@@ -45,6 +45,7 @@ namespace CorrePalabras.Services
         {
             var page = await _context.Pages.FindAsync(id);
             if (page == null) throw new KeyNotFoundException("Página no encontrada.");
+            if (string.IsNullOrEmpty(page.ImageUrl)) throw new KeyNotFoundException("Esta página no tiene imagen.");
             return await _synologyService.DownloadBySharingUrlAsync(page.ImageUrl);
         }
 
