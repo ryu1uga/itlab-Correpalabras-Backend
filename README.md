@@ -115,7 +115,7 @@ metadata:
   namespace: dev-itlab
   labels:
     app: correpalabras
-    app.kubernetes.io/part-of: mindful-git-app
+    app.kubernetes.io/part-of: correpalabras-git-app
 spec:
   replicas: 1
   selector:
