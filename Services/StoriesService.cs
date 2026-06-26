@@ -69,7 +69,8 @@ namespace CorrePalabras.Services
 
             if (story == null) return null;
 
-            if (userId != Guid.Parse("7267d866-4506-4983-8143-1dbe25216700"))
+            var user = await _context.Users.FindAsync(userId);
+            if (user?.UserType != 1)
             {
                 story.Counter++;
                 await _context.SaveChangesAsync();
