@@ -1,13 +1,13 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
-using CorrePalabras.DTOs.Common;
 using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Controllers
 {
@@ -98,7 +98,7 @@ namespace CorrePalabras.Controllers
         [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [HttpPost]
         [Authorize]
-        public async Task<IActionResult> Create([FromForm] StoryDTO dto, [FromForm] IFormFile thumbnail, [FromHeader] Guid userId)
+        public async Task<IActionResult> Create([FromForm] StoryRequest dto, [FromForm] IFormFile thumbnail, [FromHeader] Guid userId)
         {
             try 
             { 
@@ -113,7 +113,7 @@ namespace CorrePalabras.Controllers
         [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpPut("{id}")]
         [Authorize]
-        public async Task<IActionResult> Update(Guid id, [FromForm] StoryDTO dto, [FromForm] IFormFile? thumbnail, [FromHeader] Guid userId)
+        public async Task<IActionResult> Update(Guid id, [FromForm] StoryRequest dto, [FromForm] IFormFile? thumbnail, [FromHeader] Guid userId)
         {
             try 
             { 

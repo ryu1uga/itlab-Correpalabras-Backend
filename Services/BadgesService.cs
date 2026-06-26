@@ -1,5 +1,4 @@
 using CorrePalabras.Data;
-using CorrePalabras.DTOs.Common;
 using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -7,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Services
 {
@@ -35,13 +35,13 @@ namespace CorrePalabras.Services
                 .FirstOrDefaultAsync();
         }
 
-        public async Task<string> CreateAsync(BadgeDTO badgeDTO)
+        public async Task<string> CreateAsync(BadgeRequest dto)
         {
             var badge = new Badge
             {
                 Id = Guid.NewGuid(),
-                Name = badgeDTO.Name,
-                BadgeUrl = badgeDTO.BadgeUrl
+                Name = dto.Name,
+                BadgeUrl = dto.BadgeUrl
             };
 
             _context.Badges.Add(badge);
@@ -49,13 +49,13 @@ namespace CorrePalabras.Services
             return "Insignia creada correctamente.";
         }
 
-        public async Task<string> UpdateAsync(Guid id, BadgeDTO badgeDTO)
+        public async Task<string> UpdateAsync(Guid id, BadgeRequest dto)
         {
             var badge = await _context.Badges.FindAsync(id);
             if (badge == null) throw new KeyNotFoundException("Insignia no encontrada.");
 
-            badge.Name = badgeDTO.Name;
-            badge.BadgeUrl = badgeDTO.BadgeUrl;
+            badge.Name = dto.Name;
+            badge.BadgeUrl = dto.BadgeUrl;
 
             _context.Badges.Update(badge);
             await _context.SaveChangesAsync();

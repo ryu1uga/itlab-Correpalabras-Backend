@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Services
 {

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Services.Interfaces
 {

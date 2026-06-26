@@ -1,7 +1,7 @@
-using CorrePalabras.DTOs.Common;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Services.Interfaces
 {
@@ -13,8 +13,8 @@ namespace CorrePalabras.Services.Interfaces
         Task<int> GetCountByAgeRangeAsync(int minAge, int maxAge);
         Task<object> GetGenderStatsAsync();
         Task<object?> GetStoriesSummaryAsync(Guid profileId);
-        Task<string> CreateAsync(ProfileDTO profileDTO, Guid userId);
-        Task<string> UpdateAsync(Guid id, ProfileDTO profileDTO);
+        Task<string> CreateAsync(ProfileRequest dto, Guid userId);
+        Task<string> UpdateAsync(Guid id, ProfileRequest dto);
         Task<string> DeleteAsync(Guid id);
     }
 }

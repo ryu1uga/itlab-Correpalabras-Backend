@@ -1,11 +1,11 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
-using CorrePalabras.DTOs.Common;
 using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Controllers
 {
@@ -85,7 +85,7 @@ namespace CorrePalabras.Controllers
         [ProducesResponseType(typeof(ApiResponse<string>), 200)]
         [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [HttpPost]
-        public async Task<IActionResult> Create([FromBody] ProfileDTO dto, [FromHeader(Name = "UserId")] Guid userId)
+        public async Task<IActionResult> Create([FromBody] ProfileRequest dto, [FromHeader(Name = "UserId")] Guid userId)
         {
             var result = await _service.CreateAsync(dto, userId);
             return SuccessResponse(result);
@@ -95,7 +95,7 @@ namespace CorrePalabras.Controllers
         [ProducesResponseType(typeof(ApiResponse<string>), 200)]
         [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpPut("{id}")]
-        public async Task<IActionResult> Update(Guid id, [FromBody] ProfileDTO dto, [FromHeader(Name = "UserId")] Guid userId)
+        public async Task<IActionResult> Update(Guid id, [FromBody] ProfileRequest dto, [FromHeader(Name = "UserId")] Guid userId)
         {
             try 
             {

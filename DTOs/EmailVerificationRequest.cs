@@ -1,6 +1,6 @@
-namespace CorrePalabras.DTOs.Common
+namespace CorrePalabras.DTOs
 {
-    public class EmailVerificationDTO
+    public class EmailVerificationRequest
     {
         public string Email { get; set; }
         public int Code { get; set; }

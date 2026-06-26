@@ -3,6 +3,7 @@ using CorrePalabras.Data;
 using CorrePalabras.Services.Interfaces;
 using System;
 using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Services
 {

@@ -1,6 +1,6 @@
-namespace CorrePalabras.DTOs.Common
+namespace CorrePalabras.DTOs
 {
-    public class RecoveryCodeDTO
+    public class RecoveryCodeRequest
     {
         public string Email { get; set; } = string.Empty;
         public int Code { get; set; }

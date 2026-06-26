@@ -1,5 +1,4 @@
 using CorrePalabras.Data;
-using CorrePalabras.DTOs.Common;
 using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -7,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Services
 {
@@ -82,28 +82,28 @@ namespace CorrePalabras.Services
                 .ToListAsync();
         }
 
-        public async Task<string> CreateAsync(CategoryDTO categoryDTO)
+        public async Task<string> CreateAsync(CategoryRequest dto)
         {
             var category = new Category
             {
                 Id = Guid.NewGuid(),
-                Name = categoryDTO.Name,
-                Code = categoryDTO.Code,
-                CategoryOrder = categoryDTO.CategoryOrder
+                Name = dto.Name,
+                Code = dto.Code,
+                CategoryOrder = dto.CategoryOrder
             };
             _context.Categories.Add(category);
             await _context.SaveChangesAsync();
             return "Categoría creada correctamente.";
         }
 
-        public async Task<string> UpdateAsync(Guid id, CategoryDTO categoryDTO)
+        public async Task<string> UpdateAsync(Guid id, CategoryRequest dto)
         {
             var category = await _context.Categories.FindAsync(id);
             if (category == null) throw new KeyNotFoundException();
 
-            category.Name = categoryDTO.Name;
-            category.Code = categoryDTO.Code;
-            category.CategoryOrder = categoryDTO.CategoryOrder;
+            category.Name = dto.Name;
+            category.Code = dto.Code;
+            category.CategoryOrder = dto.CategoryOrder;
 
             await _context.SaveChangesAsync();
             return "Valores actualizados correctamente.";

@@ -1,11 +1,11 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
-using CorrePalabras.DTOs.Common;
 using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Controllers
 {
@@ -73,7 +73,7 @@ namespace CorrePalabras.Controllers
         [ProducesResponseType(typeof(ApiResponse<string>), 200)]
         [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [HttpPost]
-        public async Task<IActionResult> CreateLanguage([FromBody] LanguageDTO dto, [FromHeader(Name = "UserId")] Guid userId)
+        public async Task<IActionResult> CreateLanguage([FromBody] LanguageRequest dto, [FromHeader(Name = "UserId")] Guid userId)
         {
             var result = await _service.CreateAsync(dto);
             return SuccessResponse(result);
@@ -83,7 +83,7 @@ namespace CorrePalabras.Controllers
         [ProducesResponseType(typeof(ApiResponse<string>), 200)]
         [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateLanguage(Guid id, [FromBody] LanguageDTO dto, [FromHeader(Name = "UserId")] Guid userId)
+        public async Task<IActionResult> UpdateLanguage(Guid id, [FromBody] LanguageRequest dto, [FromHeader(Name = "UserId")] Guid userId)
         {
             try 
             {

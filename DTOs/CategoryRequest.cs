@@ -1,6 +1,6 @@
-namespace CorrePalabras.DTOs.Common
+namespace CorrePalabras.DTOs
 {
-    public class CategoryDTO
+    public class CategoryRequest
     {
         public Guid Id { get; set; }
         public string Name { get; set; } = "";

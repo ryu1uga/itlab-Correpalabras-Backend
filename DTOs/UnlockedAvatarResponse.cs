@@ -1,6 +1,6 @@
-namespace CorrePalabras.DTOs.Common
+namespace CorrePalabras.DTOs
 {
-    public class UnlockedAvatarDTO
+    public class UnlockedAvatarResponse
     {
         public Guid Id { get; set; }
         public Guid ProfileId { get; set; }

@@ -1,5 +1,4 @@
 using CorrePalabras.Data;
-using CorrePalabras.DTOs.Common;
 using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -7,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Services
 {
@@ -51,7 +51,7 @@ namespace CorrePalabras.Services
                 .ToListAsync();
         }
 
-        public async Task<string> CreateAsync(PageContentDTO dto)
+        public async Task<string> CreateAsync(PageContentRequest dto)
         {
             var pageContent = new PageContent
             {
@@ -67,7 +67,7 @@ namespace CorrePalabras.Services
             return "Contenido de página creado correctamente.";
         }
 
-        public async Task<string> UpdateAsync(Guid id, PageContentDTO dto)
+        public async Task<string> UpdateAsync(Guid id, PageContentRequest dto)
         {
             var pageContent = await _context.PageContents.FindAsync(id);
             if (pageContent == null) throw new KeyNotFoundException();

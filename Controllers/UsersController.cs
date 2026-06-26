@@ -1,12 +1,12 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
-using CorrePalabras.DTOs.Common;
 using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.Security.Claims;
 using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Controllers
 {
@@ -54,10 +54,10 @@ namespace CorrePalabras.Controllers
         }
 
         /// <summary>Login de usuario</summary>
-        [ProducesResponseType(typeof(ApiResponse<LoginResponseDTO>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<LoginResponse>), 200)]
         [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [HttpPost("login")]
-        public async Task<IActionResult> Login([FromBody] LoginRequestDTO dto)
+        public async Task<IActionResult> Login([FromBody] LoginRequest dto)
         {
             try 
             { 
@@ -68,10 +68,10 @@ namespace CorrePalabras.Controllers
         }
 
         /// <summary>Login de administrador</summary>
-        [ProducesResponseType(typeof(ApiResponse<LoginResponseDTO>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<LoginResponse>), 200)]
         [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [HttpPost("loginAdmin")]
-        public async Task<IActionResult> LoginAdmin([FromBody] LoginRequestDTO dto)
+        public async Task<IActionResult> LoginAdmin([FromBody] LoginRequest dto)
         {
             try 
             { 
@@ -82,10 +82,10 @@ namespace CorrePalabras.Controllers
         }
         
         /// <summary>Renueva el access token usando el refresh token</summary>
-        [ProducesResponseType(typeof(ApiResponse<LoginResponseDTO>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<LoginResponse>), 200)]
         [ProducesResponseType(typeof(ApiResponse<string>), 401)]
         [HttpPost("refresh-token")]
-        public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequestDTO dto)
+        public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequest dto)
         {
             try
             {
@@ -118,7 +118,7 @@ namespace CorrePalabras.Controllers
         [ProducesResponseType(typeof(ApiResponse<string>), 200)]
         [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [HttpPost("verifyemail")]
-        public async Task<IActionResult> VerifyEmail([FromBody] EmailDTO dto)
+        public async Task<IActionResult> VerifyEmail([FromBody] EmailRequest dto)
         {
             try 
             { 
@@ -132,7 +132,7 @@ namespace CorrePalabras.Controllers
         [ProducesResponseType(typeof(ApiResponse<string>), 200)]
         [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [HttpPost("set-password")]
-        public async Task<IActionResult> SetPassword([FromBody] ResetPasswordDTO dto)
+        public async Task<IActionResult> SetPassword([FromBody] ResetPasswordRequest dto)
         {
             try 
             { 
@@ -146,7 +146,7 @@ namespace CorrePalabras.Controllers
         [ProducesResponseType(typeof(ApiResponse<string>), 200)]
         [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [HttpPost]
-        public async Task<IActionResult> Create([FromBody] UserDTO dto)
+        public async Task<IActionResult> Create([FromBody] UserRequest dto)
         {
             try 
             { 
@@ -182,7 +182,7 @@ namespace CorrePalabras.Controllers
         [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [Authorize]
         [HttpDelete]
-        public async Task<IActionResult> Delete([FromBody] EmailVerificationDTO dto)
+        public async Task<IActionResult> Delete([FromBody] EmailVerificationRequest dto)
         {
             try 
             { 

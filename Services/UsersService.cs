@@ -1,5 +1,4 @@
 using CorrePalabras.Data;
-using CorrePalabras.DTOs.Common;
 using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -8,6 +7,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Services
 {
@@ -65,7 +65,7 @@ namespace CorrePalabras.Services
 
         public async Task<int> GetTotalCountAsync() => await _context.Users.CountAsync();
 
-        public async Task<string> CreateAsync(UserDTO dto)
+        public async Task<string> CreateAsync(UserRequest dto)
         {
             // Validación de email
             ValidateEmail(dto.Email);
@@ -87,7 +87,7 @@ namespace CorrePalabras.Services
             return "Usuario creado correctamente.";
         }
 
-        public async Task<string> UpdateAsync(Guid id, UserDTO dto)
+        public async Task<string> UpdateAsync(Guid id, UserRequest dto)
         {
             var user = await _context.Users.FindAsync(id);
             if (user == null) throw new KeyNotFoundException();
@@ -116,7 +116,7 @@ namespace CorrePalabras.Services
             return "Rol actualizado correctamente.";
         }
 
-        public async Task<string> DeleteAsync(EmailVerificationDTO dto)
+        public async Task<string> DeleteAsync(EmailVerificationRequest dto)
         {
             var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == dto.Email);
             if (user == null) throw new KeyNotFoundException();
@@ -129,7 +129,7 @@ namespace CorrePalabras.Services
             return "Usuario eliminado correctamente.";
         }
 
-        public async Task<object?> LoginAsync(LoginRequestDTO dto, bool isAdmin)
+        public async Task<object?> LoginAsync(LoginRequest dto, bool isAdmin)
         {
             var user = await _context.Users.SingleOrDefaultAsync(u => u.Email == dto.Email);
             if (user == null) throw new KeyNotFoundException("El email ingresado no existe.");
@@ -142,7 +142,7 @@ namespace CorrePalabras.Services
             return new { user.Id, user.Name, user.Email, Token = token, RefreshToken = refreshToken };
         }
 
-        public async Task<object?> RefreshTokenAsync(RefreshTokenRequestDTO dto)
+        public async Task<object?> RefreshTokenAsync(RefreshTokenRequest dto)
         {
             var existing = await _context.RefreshTokens
                 .Include(rt => rt.User)
@@ -218,7 +218,7 @@ namespace CorrePalabras.Services
             return "Código de verificación enviado al email.";
         }
 
-        public async Task<string> ResetPasswordAsync(ResetPasswordDTO dto)
+        public async Task<string> ResetPasswordAsync(ResetPasswordRequest dto)
         {
             var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == dto.Email);
             if (user == null) throw new KeyNotFoundException();

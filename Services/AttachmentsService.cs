@@ -1,5 +1,4 @@
 using CorrePalabras.Data;
-using CorrePalabras.DTOs.Common;
 using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using Microsoft.AspNetCore.Http;
@@ -8,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Services
 {
@@ -54,27 +54,27 @@ namespace CorrePalabras.Services
             return await _synologyService.DownloadBySharingUrlAsync(attachment.ImageUrl);
         }
 
-        public async Task<string> CreateAsync(IFormFile? file, AttachmentDTO attachmentDTO)
+        public async Task<string> CreateAsync(IFormFile? file, AttachmentRequest dto)
         {
             string? imageUrl = null;
 
             if (file != null && file.Length > 0)
             {
-                string folderPath = $"/CPAPPDEV/img/stories/{attachmentDTO.StoryId}";
+                string folderPath = $"/CPAPPDEV/img/stories/{dto.StoryId}";
                 string fileExtension = Path.GetExtension(file.FileName);
-                string fileName = $"{attachmentDTO.StoryId}_attachment{fileExtension}";
+                string fileName = $"{dto.StoryId}_attachment{fileExtension}";
                 imageUrl = await _synologyService.UploadAndShareAsync(file, folderPath, fileName);
             }
 
             var attachment = new Attachment
             {
                 Id = Guid.NewGuid(),
-                StoryId = attachmentDTO.StoryId,
-                LanguageId = attachmentDTO.LanguageId,
+                StoryId = dto.StoryId,
+                LanguageId = dto.LanguageId,
                 ImageUrl = imageUrl,
-                TypeImage = attachmentDTO.TypeImage,
-                Position = attachmentDTO.Position,
-                OrderAttachments = attachmentDTO.OrderAttachments
+                TypeImage = dto.TypeImage,
+                Position = dto.Position,
+                OrderAttachments = dto.OrderAttachments
             };
 
             _context.Attachments.Add(attachment);
@@ -82,25 +82,25 @@ namespace CorrePalabras.Services
             return "Archivo creado correctamente.";
         }
 
-        public async Task<string> UpdateAsync(Guid id, IFormFile? file, AttachmentDTO attachmentDTO)
+        public async Task<string> UpdateAsync(Guid id, IFormFile? file, AttachmentRequest dto)
         {
             var attachment = await _context.Attachments.FindAsync(id);
             if (attachment == null) throw new KeyNotFoundException("Archivo no encontrado.");
 
             if (file != null && file.Length > 0)
             {
-                string folderPath = $"/CPAPPDEV/img/stories/{attachmentDTO.StoryId}";
+                string folderPath = $"/CPAPPDEV/img/stories/{dto.StoryId}";
                 await _synologyService.DeleteBySharingUrlAsync(attachment.ImageUrl);
                 string fileExtension = Path.GetExtension(file.FileName);
-                string fileName = $"{attachmentDTO.StoryId}_attachment{fileExtension}";
+                string fileName = $"{dto.StoryId}_attachment{fileExtension}";
                 attachment.ImageUrl = await _synologyService.UploadAndShareAsync(file, folderPath, fileName);
             }
 
-            attachment.StoryId = attachmentDTO.StoryId;
-            attachment.LanguageId = attachmentDTO.LanguageId;
-            attachment.TypeImage = attachmentDTO.TypeImage;
-            attachment.Position = attachmentDTO.Position;
-            attachment.OrderAttachments = attachmentDTO.OrderAttachments;
+            attachment.StoryId = dto.StoryId;
+            attachment.LanguageId = dto.LanguageId;
+            attachment.TypeImage = dto.TypeImage;
+            attachment.Position = dto.Position;
+            attachment.OrderAttachments = dto.OrderAttachments;
 
             _context.Attachments.Update(attachment);
             await _context.SaveChangesAsync();

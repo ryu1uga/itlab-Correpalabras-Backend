@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using CorrePalabras.Models.Common;
 using System.Security.Claims;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Controllers
 {

@@ -1,5 +1,4 @@
 using CorrePalabras.Data;
-using CorrePalabras.DTOs.Common;
 using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -7,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Services
 {
@@ -41,7 +41,7 @@ namespace CorrePalabras.Services
                 .ToListAsync();
         }
 
-        public async Task<string> CreateAsync(UnlockedAvatarDTO dto)
+        public async Task<string> CreateAsync(UnlockedAvatarRequest dto)
         {
             var entity = new UnlockedAvatar
             {
@@ -54,7 +54,7 @@ namespace CorrePalabras.Services
             return "Avatar desbloqueado creado correctamente.";
         }
 
-        public async Task<string> UpdateAsync(Guid id, UnlockedAvatarDTO dto)
+        public async Task<string> UpdateAsync(Guid id, UnlockedAvatarRequest dto)
         {
             var entity = await _context.UnlockedAvatars.FindAsync(id);
             if (entity == null) throw new KeyNotFoundException();

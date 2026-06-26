@@ -6,6 +6,7 @@ using CorrePalabras.Services.Interfaces;
 using System;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Controllers
 {

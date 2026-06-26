@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Http;
-using CorrePalabras.DTOs.Common;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Services.Interfaces
 {
@@ -16,8 +16,8 @@ namespace CorrePalabras.Services.Interfaces
         Task<IEnumerable<object>> GetMostReadByAgeRangeAsync(int minAge, int maxAge);
         Task<IEnumerable<object>> GetMostReadByGenderAsync(string gender);
         Task<(byte[] Bytes, string ContentType)> GetImageAsync(Guid id);
-        Task<StoryDTO> CreateAsync(StoryDTO storyDTO, IFormFile thumbnail);
-        Task<string> UpdateAsync(Guid id, StoryDTO storyDTO, IFormFile? thumbnail);
+        Task<StoryRequest> CreateAsync(StoryRequest dto, IFormFile thumbnail);
+        Task<string> UpdateAsync(Guid id, StoryRequest dto, IFormFile? thumbnail);
         Task<string> DeleteAsync(Guid id);
     }
 }

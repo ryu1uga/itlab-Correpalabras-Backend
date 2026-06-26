@@ -1,7 +1,7 @@
-using CorrePalabras.DTOs.Common;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Services.Interfaces
 {
@@ -12,8 +12,8 @@ namespace CorrePalabras.Services.Interfaces
         Task<IEnumerable<object>> GetMostDemandedAsync();
         Task<IEnumerable<object>> GetMostDemandedByAgeRangeAsync(int minAge, int maxAge);
         Task<IEnumerable<object>> GetMostDemandedByGenderAsync(string gender);
-        Task<string> CreateAsync(LanguageDTO languageDTO);
-        Task<string> UpdateAsync(Guid id, LanguageDTO languageDTO);
+        Task<string> CreateAsync(LanguageRequest dto);
+        Task<string> UpdateAsync(Guid id, LanguageRequest dto);
         Task<string> DeleteAsync(Guid id);
     }
 }

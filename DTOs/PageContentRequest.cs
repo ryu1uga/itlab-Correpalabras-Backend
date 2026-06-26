@@ -1,6 +1,6 @@
-namespace CorrePalabras.DTOs.Common
+namespace CorrePalabras.DTOs
 {
-    public class PageContentDTO
+    public class PageContentRequest
     {
         public Guid Id { get; set; }
         public Guid PageId { get; set; }

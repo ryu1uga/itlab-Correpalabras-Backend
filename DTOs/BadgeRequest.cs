@@ -1,6 +1,6 @@
-namespace CorrePalabras.DTOs.Common
+namespace CorrePalabras.DTOs
 {
-    public class BadgeDTO
+    public class BadgeRequest
     {
         public Guid Id { get; set; }
         public string Name { get; set; } = "";

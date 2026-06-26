@@ -1,6 +1,6 @@
-namespace CorrePalabras.DTOs.Common
+namespace CorrePalabras.DTOs
 {
-    public class LoginResponseDTO
+    public class LoginResponse
     {
         /// <example>59cb971a-04fd-45df-944e-47640c261ac9</example>
         public Guid Id { get; set; }

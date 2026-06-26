@@ -1,6 +1,6 @@
-namespace CorrePalabras.DTOs.Common
+namespace CorrePalabras.DTOs
 {
-    public class ProfileDTO
+    public class ProfileRequest
     {
         public Guid AvatarId { get; set; }
         public string Username { get; set; } = "";

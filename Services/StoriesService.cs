@@ -1,5 +1,4 @@
 using CorrePalabras.Data;
-using CorrePalabras.DTOs.Common;
 using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using Microsoft.AspNetCore.Http;
@@ -8,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Services
 {
@@ -194,7 +194,7 @@ namespace CorrePalabras.Services
                 .Select(ps => ps.StoryLanguage.Story).Distinct().OrderByDescending(s => s.Counter).Take(5)
                 .Select(s => new { StoryId = s.Id, s.Title, Reads = s.Counter }).ToListAsync();
 
-        public async Task<StoryDTO> CreateAsync(StoryDTO dto, IFormFile thumbnail)
+        public async Task<StoryRequest> CreateAsync(StoryRequest dto, IFormFile thumbnail)
         {
             var storyId = Guid.NewGuid();
             string folderPath = $"/CPAPPDEV/img/stories/{storyId}";
@@ -215,7 +215,7 @@ namespace CorrePalabras.Services
             return dto;
         }
 
-        public async Task<string> UpdateAsync(Guid id, StoryDTO dto, IFormFile? thumbnail)
+        public async Task<string> UpdateAsync(Guid id, StoryRequest dto, IFormFile? thumbnail)
         {
             var story = await _context.Stories.FindAsync(id);
             if (story == null) throw new KeyNotFoundException();

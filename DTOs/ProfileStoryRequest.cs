@@ -1,6 +1,6 @@
-namespace CorrePalabras.DTOs.Common
+namespace CorrePalabras.DTOs
 {
-    public class ProfileStoryDTO
+    public class ProfileStoryRequest
     {
         public Guid Id { get; set; }
         public Guid StoryLanguageId { get; set; }

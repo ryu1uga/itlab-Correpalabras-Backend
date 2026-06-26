@@ -1,11 +1,11 @@
     using Microsoft.AspNetCore.Http;
     using Microsoft.AspNetCore.Mvc;
     using Microsoft.AspNetCore.Authorization;
-    using CorrePalabras.DTOs.Common;
-    using CorrePalabras.Models.Common;
+        using CorrePalabras.Models.Common;
     using CorrePalabras.Services.Interfaces;
     using System;
     using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
     namespace CorrePalabras.Controllers
     {
@@ -62,7 +62,7 @@
             [ProducesResponseType(typeof(ApiResponse<string>), 200)]
             [ProducesResponseType(typeof(ApiResponse<string>), 400)]
             [HttpPost]
-            public async Task<IActionResult> CreateAttachment([FromForm] IFormFile? file, [FromForm] AttachmentDTO dto, [FromHeader] Guid userId)
+            public async Task<IActionResult> CreateAttachment([FromForm] IFormFile? file, [FromForm] AttachmentRequest dto, [FromHeader] Guid userId)
             {
                 try {
                     var result = await _service.CreateAsync(file, dto);
@@ -76,7 +76,7 @@
             [ProducesResponseType(typeof(ApiResponse<string>), 200)]
             [ProducesResponseType(typeof(ApiResponse<string>), 404)]
             [HttpPut("{id}")]
-            public async Task<IActionResult> UpdateAttachment(Guid id, [FromForm] IFormFile? file, [FromForm] AttachmentDTO dto, [FromHeader] Guid userId)
+            public async Task<IActionResult> UpdateAttachment(Guid id, [FromForm] IFormFile? file, [FromForm] AttachmentRequest dto, [FromHeader] Guid userId)
             {
                 try {
                     var result = await _service.UpdateAsync(id, file, dto);

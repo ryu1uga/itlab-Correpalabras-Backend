@@ -1,8 +1,8 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace CorrePalabras.DTOs.Common
+namespace CorrePalabras.DTOs
 {
-    public class RefreshTokenRequestDTO
+    public class RefreshTokenRequest
     {
         [Required(ErrorMessage = "El refresh token es requerido.")]
         public string RefreshToken { get; set; } = "";

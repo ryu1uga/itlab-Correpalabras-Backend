@@ -1,11 +1,11 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
-using CorrePalabras.DTOs.Common;
 using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using System;
 using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Controllers
 {
@@ -62,14 +62,14 @@ namespace CorrePalabras.Controllers
         [ProducesResponseType(typeof(ApiResponse<string>), 200)]
         [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [HttpPost]
-        public async Task<IActionResult> CreatePage([FromForm] PageDTO pageDTO, [FromForm] IFormFile? imageFile, [FromHeader(Name = "UserId")] Guid userId)
+        public async Task<IActionResult> CreatePage([FromForm] PageRequest dto, [FromForm] IFormFile? imageFile, [FromHeader(Name = "UserId")] Guid userId)
         {
-            if (pageDTO == null || pageDTO.PageOrder <= 0) 
+            if (dto == null || dto.PageOrder <= 0) 
                 return ErrorResponse("Datos de página no válidos.");
 
             try 
             {
-                var result = await _service.CreateAsync(pageDTO, imageFile);
+                var result = await _service.CreateAsync(dto, imageFile);
                 return SuccessResponse(result);
             } 
             catch (Exception ex) 
@@ -82,11 +82,11 @@ namespace CorrePalabras.Controllers
         [ProducesResponseType(typeof(ApiResponse<string>), 200)]
         [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpPut("{id}")]
-        public async Task<IActionResult> UpdatePage(Guid id, [FromForm] PageDTO pageDTO, [FromForm] IFormFile? imageFile, [FromHeader(Name = "UserId")] Guid userId)
+        public async Task<IActionResult> UpdatePage(Guid id, [FromForm] PageRequest dto, [FromForm] IFormFile? imageFile, [FromHeader(Name = "UserId")] Guid userId)
         {
             try 
             {
-                var result = await _service.UpdateAsync(id, pageDTO, imageFile);
+                var result = await _service.UpdateAsync(id, dto, imageFile);
                 return SuccessResponse(result);
             } 
             catch (KeyNotFoundException) 

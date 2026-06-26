@@ -1,6 +1,6 @@
-namespace CorrePalabras.DTOs.Common
+namespace CorrePalabras.DTOs
 {
-    public class AvatarDTO
+    public class AvatarRequest
     {
         public Guid Id { get; set; }
         public Guid? StoryId { get; set; }

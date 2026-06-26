@@ -1,3 +1,4 @@
+using CorrePalabras.DTOs;
 namespace CorrePalabras.Services.Interfaces
 {
     public interface ISynologyService

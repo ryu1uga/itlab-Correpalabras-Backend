@@ -1,5 +1,4 @@
 using CorrePalabras.Data;
-using CorrePalabras.DTOs.Common;
 using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -7,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Services
 {
@@ -107,15 +107,15 @@ namespace CorrePalabras.Services
             };
         }
 
-        public async Task<string> CreateAsync(ProfileDTO profileDTO, Guid userId)
+        public async Task<string> CreateAsync(ProfileRequest dto, Guid userId)
         {
             var profile = new Profile
             {
                 Id = Guid.NewGuid(),
-                AvatarId = profileDTO.AvatarId,
-                Username = profileDTO.Username,
-                Gender = profileDTO.Gender,
-                BirthDate = profileDTO.BirthDate,
+                AvatarId = dto.AvatarId,
+                Username = dto.Username,
+                Gender = dto.Gender,
+                BirthDate = dto.BirthDate,
                 UserId = userId
             };
 
@@ -124,7 +124,7 @@ namespace CorrePalabras.Services
             return "Perfil creado correctamente.";
         }
 
-        public async Task<string> UpdateAsync(Guid id, ProfileDTO dto)
+        public async Task<string> UpdateAsync(Guid id, ProfileRequest dto)
         {
             var profile = await _context.Profiles.FindAsync(id);
             if (profile == null) throw new KeyNotFoundException();

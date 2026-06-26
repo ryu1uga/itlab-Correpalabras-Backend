@@ -1,5 +1,4 @@
 using CorrePalabras.Data;
-using CorrePalabras.DTOs.Common;
 using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -7,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Services
 {
@@ -75,24 +75,24 @@ namespace CorrePalabras.Services
                 .ToListAsync();
         }
 
-        public async Task<string> CreateAsync(LanguageDTO languageDTO)
+        public async Task<string> CreateAsync(LanguageRequest dto)
         {
             var language = new Language
             {
                 Id = Guid.NewGuid(),
-                Name = languageDTO.Name
+                Name = dto.Name
             };
             _context.Languages.Add(language);
             await _context.SaveChangesAsync();
             return "Idioma creado correctamente.";
         }
 
-        public async Task<string> UpdateAsync(Guid id, LanguageDTO languageDTO)
+        public async Task<string> UpdateAsync(Guid id, LanguageRequest dto)
         {
             var language = await _context.Languages.FindAsync(id);
             if (language == null) throw new KeyNotFoundException();
 
-            language.Name = languageDTO.Name;
+            language.Name = dto.Name;
             _context.Languages.Update(language);
             await _context.SaveChangesAsync();
             return "Valores actualizados correctamente.";

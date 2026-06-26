@@ -1,6 +1,6 @@
-namespace CorrePalabras.DTOs.Common
+namespace CorrePalabras.DTOs
 {
-    public class ChangePasswordDTO
+    public class ChangePasswordRequest
     {
         public string CurrentPassword { get; set; }
         public string NewPassword { get; set; }

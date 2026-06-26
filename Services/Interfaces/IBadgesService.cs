@@ -1,7 +1,7 @@
-using CorrePalabras.DTOs.Common;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Services.Interfaces
 {
@@ -9,8 +9,8 @@ namespace CorrePalabras.Services.Interfaces
     {
         Task<IEnumerable<object>> GetAllAsync();
         Task<object?> GetByIdAsync(Guid id);
-        Task<string> CreateAsync(BadgeDTO badgeDTO);
-        Task<string> UpdateAsync(Guid id, BadgeDTO badgeDTO);
+        Task<string> CreateAsync(BadgeRequest dto);
+        Task<string> UpdateAsync(Guid id, BadgeRequest dto);
         Task<string> DeleteAsync(Guid id);
     }
 }

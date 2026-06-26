@@ -1,5 +1,4 @@
 using CorrePalabras.Data;
-using CorrePalabras.DTOs.Common;
 using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -7,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Services
 {
@@ -32,7 +32,7 @@ namespace CorrePalabras.Services
                 .FirstOrDefaultAsync();
         }
 
-        public async Task<string> CreateAsync(StoryCategoryDTO dto)
+        public async Task<string> CreateAsync(StoryCategoryRequest dto)
         {
             var entity = new StoryCategory
             {
@@ -45,7 +45,7 @@ namespace CorrePalabras.Services
             return "Relación cuento-categoría creado correctamente.";
         }
 
-        public async Task<string> UpdateAsync(Guid id, StoryCategoryDTO dto)
+        public async Task<string> UpdateAsync(Guid id, StoryCategoryRequest dto)
         {
             var entity = await _context.StoryCategories.FindAsync(id);
             if (entity == null) throw new KeyNotFoundException();

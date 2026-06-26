@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using System.Threading.Tasks;
+using CorrePalabras.DTOs;
 
 namespace CorrePalabras.Controllers
 {

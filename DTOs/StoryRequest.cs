@@ -1,6 +1,6 @@
-namespace CorrePalabras.DTOs.Common
+namespace CorrePalabras.DTOs
 {
-    public class StoryDTO
+    public class StoryRequest
     {
         public Guid Id { get; set; }
         public string Author { get; set; } = "";
