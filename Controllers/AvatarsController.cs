@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using System;
 using System.Threading.Tasks;
@@ -20,6 +21,8 @@ namespace CorrePalabras.Controllers
             _service = service;
         }
 
+        /// <summary>Obtiene todos los avatares</summary>
+        [ProducesResponseType(typeof(ApiResponse<IEnumerable<object>>), 200)]
         [HttpGet]
         public async Task<IActionResult> GetAvatars([FromHeader(Name = "UserId")] Guid userId)
         {
@@ -27,6 +30,9 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(data);
         }
 
+        /// <summary>Obtiene un avatar por ID</summary>
+        [ProducesResponseType(typeof(ApiResponse<object>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpGet("{id}")]
         public async Task<IActionResult> GetAvatar(Guid id, [FromHeader(Name = "UserId")] Guid userId)
         {
@@ -36,6 +42,9 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(data);
         }
 
+        /// <summary>Descarga la imagen de un avatar</summary>
+        [ProducesResponseType(typeof(FileContentResult), 200)]
+        [ProducesResponseType(404)]
         [HttpGet("{id}/image")]
         [AllowAnonymous]
         public async Task<IActionResult> GetAvatarImage(Guid id)
@@ -55,6 +64,9 @@ namespace CorrePalabras.Controllers
             }
         }
 
+        /// <summary>Crea un nuevo avatar</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [HttpPost]
         public async Task<IActionResult> PostAvatar([FromForm] IFormFile avatarImage, [FromForm] Guid? storyId, [FromHeader(Name = "UserId")] Guid userId)
         {
@@ -69,6 +81,9 @@ namespace CorrePalabras.Controllers
             }
         }
 
+        /// <summary>Actualiza un avatar</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpPut("{id}")]
         public async Task<IActionResult> PutAvatar(Guid id, [FromForm] IFormFile? avatarImage, [FromForm] Guid? storyId, [FromHeader(Name = "UserId")] Guid userId)
         {
@@ -82,6 +97,9 @@ namespace CorrePalabras.Controllers
             }
         }
 
+        /// <summary>Elimina un avatar</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteAvatar(Guid id, [FromHeader(Name = "UserId")] Guid userId)
         {

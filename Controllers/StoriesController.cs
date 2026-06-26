@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using CorrePalabras.DTOs.Common;
+using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using System;
 using System.Collections.Generic;
@@ -17,6 +18,8 @@ namespace CorrePalabras.Controllers
         private readonly IStoriesService _service;
         public StoriesController(IStoriesService service) => _service = service;
 
+        /// <summary>Obtiene todos los cuentos</summary>
+        [ProducesResponseType(typeof(ApiResponse<IEnumerable<object>>), 200)]
         [HttpGet]
         [Authorize]
         public async Task<IActionResult> GetAll([FromHeader] Guid userId)
@@ -25,6 +28,9 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(data);
         }
 
+        /// <summary>Obtiene un cuento por ID</summary>
+        [ProducesResponseType(typeof(ApiResponse<object>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpGet("{id}")]
         [Authorize]
         public async Task<IActionResult> Get(Guid id, [FromHeader] Guid userId)
@@ -35,6 +41,9 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(data);
         }
 
+        /// <summary>Descarga la imagen de portada de un cuento</summary>
+        [ProducesResponseType(typeof(FileContentResult), 200)]
+        [ProducesResponseType(404)]
         [HttpGet("{id}/image")]
         [AllowAnonymous]
         public async Task<IActionResult> GetImage(Guid id)
@@ -48,6 +57,9 @@ namespace CorrePalabras.Controllers
             catch (Exception ex) { return StatusCode(500, ex.Message); }
         }
 
+        /// <summary>Obtiene cuentos por categoría</summary>
+        [ProducesResponseType(typeof(ApiResponse<IEnumerable<object>>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpGet("ByCategory")]
         [Authorize]
         public async Task<IActionResult> GetByCategory([FromHeader] Guid userId, [FromQuery] Guid categoryId, [FromQuery] string? orderedBy = null)
@@ -59,6 +71,9 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(data);
         }
 
+        /// <summary>Obtiene un cuento aleatorio (no requiere JWT)</summary>
+        [ProducesResponseType(typeof(ApiResponse<object>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpGet("random")]
         [AllowAnonymous]
         public async Task<IActionResult> GetRandom()
@@ -68,6 +83,8 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(data);
         }
 
+        /// <summary>Top 5 cuentos más leídos</summary>
+        [ProducesResponseType(typeof(ApiResponse<IEnumerable<object>>), 200)]
         [HttpGet("mostRead")]
         [Authorize]
         public async Task<IActionResult> GetMostRead([FromHeader] Guid userId)
@@ -76,6 +93,9 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(data);
         }
 
+        /// <summary>Crea un nuevo cuento</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [HttpPost]
         [Authorize]
         public async Task<IActionResult> Create([FromForm] StoryDTO dto, [FromForm] IFormFile thumbnail, [FromHeader] Guid userId)
@@ -88,6 +108,9 @@ namespace CorrePalabras.Controllers
             catch (Exception ex) { return ErrorResponse(ex.Message); }
         }
 
+        /// <summary>Actualiza un cuento</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpPut("{id}")]
         [Authorize]
         public async Task<IActionResult> Update(Guid id, [FromForm] StoryDTO dto, [FromForm] IFormFile? thumbnail, [FromHeader] Guid userId)
@@ -101,6 +124,9 @@ namespace CorrePalabras.Controllers
             catch (Exception ex) { return ErrorResponse(ex.Message); }
         }
 
+        /// <summary>Elimina un cuento</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpDelete("{id}")]
         [Authorize]
         public async Task<IActionResult> Delete(Guid id, [FromHeader] Guid userId)

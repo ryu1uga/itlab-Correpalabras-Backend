@@ -34,6 +34,9 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "CorrePalabras API", Version = "v1" });
+    var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath)) c.IncludeXmlComments(xmlPath);
     
     // Configurar el esquema de seguridad Bearer
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
@@ -150,14 +153,30 @@ builder.Services.AddSingleton<ISynologyService>(sp =>
 });
 
 // Configuración de CORS - Restringida según ambiente
+// Soporta wildcards de prefijo: "http://192.168.49.*" permite cualquier IP en esa subred.
 var allowedOrigins = Environment.GetEnvironmentVariable("ALLOWED_ORIGINS")?.Split(",") ?? new[] { "http://localhost:3000" };
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowSpecificOrigin",
-        policy => policy.WithOrigins(allowedOrigins)
-                        .AllowAnyHeader()
-                        .AllowAnyMethod()
-                        .AllowCredentials());
+        policy => policy
+            .SetIsOriginAllowed(origin =>
+            {
+                foreach (var allowed in allowedOrigins)
+                {
+                    var trimmed = allowed.Trim();
+                    if (trimmed.EndsWith("*"))
+                    {
+                        if (origin.StartsWith(trimmed[..^1], StringComparison.OrdinalIgnoreCase))
+                            return true;
+                    }
+                    else if (string.Equals(origin, trimmed, StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+                return false;
+            })
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials());
 });
 
 // Logging

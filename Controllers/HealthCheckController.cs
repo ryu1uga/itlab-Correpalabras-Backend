@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using System.Threading.Tasks;
 
@@ -15,6 +16,8 @@ namespace CorrePalabras.Controllers
             _service = service;
         }
 
+        /// <summary>Verifica el estado del servicio</summary>
+        [ProducesResponseType(typeof(ApiResponse<object>), 200)]
         // GET: api/healthcheck
         [HttpGet]
         public async Task<IActionResult> GetHealthCheck()

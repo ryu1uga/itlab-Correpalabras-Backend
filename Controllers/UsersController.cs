@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using CorrePalabras.DTOs.Common;
+using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using System;
+using System.Collections.Generic;
 using System.Security.Claims;
 using System.Threading.Tasks;
 
@@ -15,6 +17,8 @@ namespace CorrePalabras.Controllers
         private readonly IUsersService _service;
         public UsersController(IUsersService service) => _service = service;
 
+        /// <summary>Obtiene todos los usuarios</summary>
+        [ProducesResponseType(typeof(ApiResponse<IEnumerable<object>>), 200)]
         [Authorize]
         [HttpGet]
         public async Task<IActionResult> GetAll([FromHeader] Guid userId)
@@ -23,6 +27,9 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(data);
         }
 
+        /// <summary>Obtiene un usuario por ID</summary>
+        [ProducesResponseType(typeof(ApiResponse<object>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [Authorize]
         [HttpGet("{id}")]
         public async Task<IActionResult> Get(Guid id)
@@ -33,6 +40,9 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(data);
         }
 
+        /// <summary>Obtiene los perfiles de un usuario</summary>
+        [ProducesResponseType(typeof(ApiResponse<IEnumerable<object>>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [Authorize]
         [HttpGet("{id}/profiles")]
         public async Task<IActionResult> GetProfiles(Guid id)
@@ -43,6 +53,9 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(data);
         }
 
+        /// <summary>Login de usuario</summary>
+        [ProducesResponseType(typeof(ApiResponse<LoginResponseDTO>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginRequestDTO dto)
         {
@@ -54,6 +67,9 @@ namespace CorrePalabras.Controllers
             catch (Exception ex) { return ErrorResponse(ex.Message); }
         }
 
+        /// <summary>Login de administrador</summary>
+        [ProducesResponseType(typeof(ApiResponse<LoginResponseDTO>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [HttpPost("loginAdmin")]
         public async Task<IActionResult> LoginAdmin([FromBody] LoginRequestDTO dto)
         {
@@ -65,6 +81,9 @@ namespace CorrePalabras.Controllers
             catch (Exception ex) { return ErrorResponse(ex.Message); }
         }
         
+        /// <summary>Renueva el access token usando el refresh token</summary>
+        [ProducesResponseType(typeof(ApiResponse<LoginResponseDTO>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 401)]
         [HttpPost("refresh-token")]
         public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequestDTO dto)
         {
@@ -76,6 +95,9 @@ namespace CorrePalabras.Controllers
             catch (Exception ex) { return ErrorResponse(ex.Message, 401); }
         }
 
+        /// <summary>Cierra la sesión del usuario</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [Authorize]
         [HttpPost("logout")]
         public async Task<IActionResult> Logout()
@@ -92,6 +114,9 @@ namespace CorrePalabras.Controllers
             catch (Exception ex) { return ErrorResponse(ex.Message); }
         }
 
+        /// <summary>Envía código de verificación al email</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [HttpPost("verifyemail")]
         public async Task<IActionResult> VerifyEmail([FromBody] EmailDTO dto)
         {
@@ -103,6 +128,9 @@ namespace CorrePalabras.Controllers
             catch (Exception ex) { return ErrorResponse(ex.Message); }
         }
 
+        /// <summary>Restablece la contraseña con código de verificación</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [HttpPost("set-password")]
         public async Task<IActionResult> SetPassword([FromBody] ResetPasswordDTO dto)
         {
@@ -114,6 +142,9 @@ namespace CorrePalabras.Controllers
             catch (Exception ex) { return ErrorResponse(ex.Message); }
         }
 
+        /// <summary>Crea un nuevo usuario</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] UserDTO dto)
         {
@@ -126,6 +157,9 @@ namespace CorrePalabras.Controllers
             catch (Exception ex) { return ErrorResponse(ex.Message); }
         }
 
+        /// <summary>Cambia el rol de un usuario (solo admin)</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [Authorize]
         [HttpPut("{id}/role")]
         public async Task<IActionResult> UpdateRole(Guid id, [FromBody] int userType)
@@ -143,6 +177,9 @@ namespace CorrePalabras.Controllers
             catch (Exception ex)         { return ErrorResponse(ex.Message); }
         }
 
+        /// <summary>Elimina un usuario con verificación por email</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [Authorize]
         [HttpDelete]
         public async Task<IActionResult> Delete([FromBody] EmailVerificationDTO dto)

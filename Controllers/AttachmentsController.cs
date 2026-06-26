@@ -2,6 +2,7 @@
     using Microsoft.AspNetCore.Mvc;
     using Microsoft.AspNetCore.Authorization;
     using CorrePalabras.DTOs.Common;
+    using CorrePalabras.Models.Common;
     using CorrePalabras.Services.Interfaces;
     using System;
     using System.Threading.Tasks;
@@ -20,6 +21,8 @@
                 _service = service;
             }
 
+            /// <summary>Obtiene todos los attachments</summary>
+            [ProducesResponseType(typeof(ApiResponse<IEnumerable<object>>), 200)]
             [HttpGet]
             public async Task<IActionResult> GetAttachments([FromHeader(Name = "UserId")] Guid userId)
             {
@@ -27,6 +30,9 @@
                 return SuccessResponse(data);
             }
 
+            /// <summary>Obtiene un attachment por ID</summary>
+            [ProducesResponseType(typeof(ApiResponse<object>), 200)]
+            [ProducesResponseType(typeof(ApiResponse<string>), 404)]
             [HttpGet("{id}")]
             public async Task<IActionResult> GetAttachment(Guid id, [FromHeader(Name = "UserId")] Guid userId)
             {
@@ -36,6 +42,9 @@
                 return SuccessResponse(data);
             }
 
+            /// <summary>Descarga la imagen de un attachment</summary>
+            [ProducesResponseType(typeof(FileContentResult), 200)]
+            [ProducesResponseType(404)]
             [HttpGet("{id}/image")]
             [AllowAnonymous]
             public async Task<IActionResult> GetAttachmentImage(Guid id)
@@ -49,6 +58,9 @@
                 catch (Exception ex) { return StatusCode(500, ex.Message); }
             }
 
+            /// <summary>Crea un nuevo attachment</summary>
+            [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+            [ProducesResponseType(typeof(ApiResponse<string>), 400)]
             [HttpPost]
             public async Task<IActionResult> CreateAttachment([FromForm] IFormFile? file, [FromForm] AttachmentDTO dto, [FromHeader] Guid userId)
             {
@@ -60,6 +72,9 @@
                 }
             }
 
+            /// <summary>Actualiza un attachment</summary>
+            [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+            [ProducesResponseType(typeof(ApiResponse<string>), 404)]
             [HttpPut("{id}")]
             public async Task<IActionResult> UpdateAttachment(Guid id, [FromForm] IFormFile? file, [FromForm] AttachmentDTO dto, [FromHeader] Guid userId)
             {
@@ -73,6 +88,9 @@
                 }
             }
 
+            /// <summary>Elimina un attachment</summary>
+            [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+            [ProducesResponseType(typeof(ApiResponse<string>), 404)]
             [HttpDelete("{id}")]
             public async Task<IActionResult> DeleteAttachment(Guid id, [FromHeader] Guid userId)
             {

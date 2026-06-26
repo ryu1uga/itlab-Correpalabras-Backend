@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using CorrePalabras.DTOs.Common;
+using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using System;
 using System.Collections.Generic;
@@ -20,6 +21,8 @@ namespace CorrePalabras.Controllers
             _service = service;
         }
 
+        /// <summary>Obtiene todas las insignias</summary>
+        [ProducesResponseType(typeof(ApiResponse<IEnumerable<object>>), 200)]
         [HttpGet]
         public async Task<IActionResult> GetBadges([FromHeader(Name = "UserId")] Guid userId)
         {
@@ -27,6 +30,9 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(data);
         }
 
+        /// <summary>Obtiene una insignia por ID</summary>
+        [ProducesResponseType(typeof(ApiResponse<object>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpGet("{id}")]
         public async Task<IActionResult> GetBadge(Guid id, [FromHeader(Name = "UserId")] Guid userId)
         {
@@ -36,6 +42,9 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(data);
         }
 
+        /// <summary>Crea una nueva insignia</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [HttpPost]
         public async Task<IActionResult> CreateBadge([FromBody] BadgeDTO badgeDTO, [FromHeader(Name = "UserId")] Guid userId)
         {
@@ -43,6 +52,9 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(result);
         }
 
+        /// <summary>Actualiza una insignia</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateBadge(Guid id, [FromBody] BadgeDTO badgeDTO, [FromHeader(Name = "UserId")] Guid userId)
         {
@@ -61,6 +73,9 @@ namespace CorrePalabras.Controllers
             }
         }
 
+        /// <summary>Elimina una insignia</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteBadge(Guid id, [FromHeader(Name = "UserId")] Guid userId)
         {

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using CorrePalabras.DTOs.Common;
+using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using System;
 using System.Collections.Generic;
@@ -17,6 +18,8 @@ namespace CorrePalabras.Controllers
 
         public UnlockedBadgesController(IUnlockedBadgesService service) => _service = service;
 
+        /// <summary>Obtiene todas las insignias desbloqueadas</summary>
+        [ProducesResponseType(typeof(ApiResponse<IEnumerable<object>>), 200)]
         [HttpGet]
         public async Task<IActionResult> GetAll([FromHeader] Guid userId)
         {
@@ -24,6 +27,9 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(data);
         }
 
+        /// <summary>Obtiene una insignia desbloqueada por ID</summary>
+        [ProducesResponseType(typeof(ApiResponse<object>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpGet("{id}")]
         public async Task<IActionResult> Get(Guid id, [FromHeader] Guid userId)
         {
@@ -33,6 +39,9 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(data);
         }
 
+        /// <summary>Desbloquea una insignia para un perfil</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [HttpPost]
         public async Task<IActionResult> Create([FromHeader] Guid userId, [FromBody] UnlockedBadgeDTO dto)
         {
@@ -47,6 +56,9 @@ namespace CorrePalabras.Controllers
             }
         }
 
+        /// <summary>Actualiza una insignia desbloqueada</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(Guid id, [FromHeader] Guid userId, [FromBody] UnlockedBadgeDTO dto)
         {
@@ -59,6 +71,9 @@ namespace CorrePalabras.Controllers
             catch (Exception ex) { return ErrorResponse(ex.Message); }
         }
 
+        /// <summary>Elimina una insignia desbloqueada</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id, [FromHeader] Guid userId)
         {

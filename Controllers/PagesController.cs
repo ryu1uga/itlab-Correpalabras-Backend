@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using CorrePalabras.DTOs.Common;
+using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using System;
 using System.Threading.Tasks;
@@ -20,6 +21,8 @@ namespace CorrePalabras.Controllers
             _service = service;
         }
 
+        /// <summary>Obtiene todas las páginas</summary>
+        [ProducesResponseType(typeof(ApiResponse<IEnumerable<object>>), 200)]
         [HttpGet]
         public async Task<IActionResult> GetPages([FromHeader(Name = "UserId")] Guid userId)
         {
@@ -27,6 +30,9 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(data);
         }
 
+        /// <summary>Obtiene una página por ID</summary>
+        [ProducesResponseType(typeof(ApiResponse<object>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpGet("{id}")]
         public async Task<IActionResult> GetPage(Guid id, [FromHeader(Name = "UserId")] Guid userId)
         {
@@ -36,6 +42,9 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(data);
         }
 
+        /// <summary>Descarga la imagen de una página</summary>
+        [ProducesResponseType(typeof(FileContentResult), 200)]
+        [ProducesResponseType(404)]
         [HttpGet("{id}/image")]
         [AllowAnonymous]
         public async Task<IActionResult> GetPageImage(Guid id)
@@ -49,6 +58,9 @@ namespace CorrePalabras.Controllers
             catch (Exception ex) { return StatusCode(500, ex.Message); }
         }
 
+        /// <summary>Crea una nueva página</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [HttpPost]
         public async Task<IActionResult> CreatePage([FromForm] PageDTO pageDTO, [FromForm] IFormFile? imageFile, [FromHeader(Name = "UserId")] Guid userId)
         {
@@ -66,6 +78,9 @@ namespace CorrePalabras.Controllers
             }
         }
 
+        /// <summary>Actualiza una página</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdatePage(Guid id, [FromForm] PageDTO pageDTO, [FromForm] IFormFile? imageFile, [FromHeader(Name = "UserId")] Guid userId)
         {
@@ -84,6 +99,9 @@ namespace CorrePalabras.Controllers
             }
         }
 
+        /// <summary>Elimina una página</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeletePage(Guid id, [FromHeader(Name = "UserId")] Guid userId)
         {

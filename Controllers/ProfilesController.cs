@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using CorrePalabras.DTOs.Common;
+using CorrePalabras.Models.Common;
 using CorrePalabras.Services.Interfaces;
 using System;
 using System.Collections.Generic;
@@ -20,6 +21,8 @@ namespace CorrePalabras.Controllers
             _service = service;
         }
 
+        /// <summary>Obtiene todos los perfiles</summary>
+        [ProducesResponseType(typeof(ApiResponse<IEnumerable<object>>), 200)]
         [HttpGet]
         public async Task<IActionResult> GetProfiles([FromHeader(Name = "UserId")] Guid userId)
         {
@@ -27,6 +30,9 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(data);
         }
 
+        /// <summary>Obtiene un perfil por ID</summary>
+        [ProducesResponseType(typeof(ApiResponse<object>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpGet("{id}")]
         public async Task<IActionResult> GetProfile(Guid id, [FromHeader(Name = "UserId")] Guid userId)
         {
@@ -36,6 +42,8 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(data);
         }
 
+        /// <summary>Obtiene el total de perfiles</summary>
+        [ProducesResponseType(typeof(ApiResponse<object>), 200)]
         [HttpGet("count")]
         public async Task<IActionResult> GetCount([FromHeader(Name = "UserId")] Guid userId)
         {
@@ -43,6 +51,8 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(total);
         }
 
+        /// <summary>Obtiene cantidad de perfiles por rango de edad</summary>
+        [ProducesResponseType(typeof(ApiResponse<object>), 200)]
         [HttpGet("countByAgeRange")]
         public async Task<IActionResult> GetCountByAge([FromQuery] int minAge, [FromQuery] int maxAge, [FromHeader(Name = "UserId")] Guid userId)
         {
@@ -50,6 +60,8 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(count);
         }
 
+        /// <summary>Obtiene distribución de perfiles por género</summary>
+        [ProducesResponseType(typeof(ApiResponse<object>), 200)]
         [HttpGet("countByGender")]
         public async Task<IActionResult> GetGenderCount([FromHeader(Name = "UserId")] Guid userId)
         {
@@ -57,6 +69,9 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(result);
         }
 
+        /// <summary>Obtiene resumen de historias de un perfil</summary>
+        [ProducesResponseType(typeof(ApiResponse<object>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpGet("{id}/storiesSummary")]
         public async Task<IActionResult> GetStoriesSummary(Guid id, [FromHeader(Name = "UserId")] Guid userId)
         {
@@ -66,6 +81,9 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(result);
         }
 
+        /// <summary>Crea un nuevo perfil</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 400)]
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] ProfileDTO dto, [FromHeader(Name = "UserId")] Guid userId)
         {
@@ -73,6 +91,9 @@ namespace CorrePalabras.Controllers
             return SuccessResponse(result);
         }
 
+        /// <summary>Actualiza un perfil</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(Guid id, [FromBody] ProfileDTO dto, [FromHeader(Name = "UserId")] Guid userId)
         {
@@ -91,6 +112,9 @@ namespace CorrePalabras.Controllers
             }
         }
 
+        /// <summary>Elimina un perfil</summary>
+        [ProducesResponseType(typeof(ApiResponse<string>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<string>), 404)]
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id, [FromHeader(Name = "UserId")] Guid userId)
         {
